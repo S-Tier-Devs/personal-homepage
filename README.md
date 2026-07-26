@@ -67,7 +67,7 @@ Required environment variables for local development, see `.env.example`:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `ADMIN_EMAIL`
 
-In production (`.do/app.yaml`), `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are `BUILD_TIME` values baked in at build time; `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAIL` are `RUN_TIME` secrets set in the DigitalOcean dashboard, never in a file. `NEXT_PUBLIC_SITE_URL` is deliberately not set in production, `getSiteUrl()` in `lib/env.ts` falls back to the `www` host. There is no separate preview scope: App Platform does not create per-PR preview environments, so verify locally (`npm run build && npm start`) before merge, and check production after merge.
+In production (`.do/app.yaml`), `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are `BUILD_TIME` values baked in at build time. `SUPABASE_SERVICE_ROLE_KEY` is the only real secret: `RUN_TIME`, `type: SECRET`, empty in the committed spec and set out of band, because it bypasses RLS. `ADMIN_EMAIL` is a plain `RUN_TIME` value in the spec, not a secret - it is the address this site publishes as its contact link, and it is only compared against an already-authenticated session, so keeping it in the spec costs nothing and lets the app be recreated from that file alone. `NEXT_PUBLIC_SITE_URL` is deliberately not set in production, `getSiteUrl()` in `lib/env.ts` falls back to the `www` host.
 
 Never commit `.env.local`.
 
@@ -82,7 +82,7 @@ npm run build
 
 Hosted on DigitalOcean App Platform, app `personal-homepage`, region `nyc`. `.do/app.yaml` is the source of truth for the app spec, including domains, ingress rules and env var scoping - never edit the app in the DO web console, or the console and the spec drift.
 
-Production deploys from `main` on merge (`deploy_on_push: true`). There are no per-PR preview environments; verify locally with `npm run build && npm start` before merge, and check production after merge.
+Production deploys from `main` on merge (`deploy_on_push: true`). App Platform does not create per-PR preview environments. A Vercel preview URL may still appear on PRs, because the Vercel project is deliberately kept connected as the hosting rollback path; it disappears when that project is deleted at teardown. Verify locally with `npm run build && npm start` before merge, and check production after merge.
 
 `www.patrickbeasley.com` is canonical. The apex `patrickbeasley.com` redirects to it via an ingress rule in `.do/app.yaml` - it does not serve content directly.
 

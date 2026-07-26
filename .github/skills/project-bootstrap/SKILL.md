@@ -32,7 +32,7 @@ description: Use when initializing a new project module or service from scratch 
 ### Stage 3 — Environment Setup
 - [ ] Create `.env.local` from `.env.example` template
 - [ ] Add: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_EMAIL`
-- [ ] Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` as `BUILD_TIME` values in `.do/app.yaml`; add `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAIL` as `RUN_TIME` secrets in the DigitalOcean App Platform dashboard, never in a file
+- [ ] Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (`BUILD_TIME`) and `ADMIN_EMAIL` (`RUN_TIME`, plain) in `.do/app.yaml`; set only `SUPABASE_SERVICE_ROLE_KEY` out of band as a `RUN_TIME` `SECRET`, never in a file, because it bypasses RLS
 - [ ] Verify `.env.local` is git-ignored
 - [ ] Verify `.env.example` is committed even if the repo ignores `.env*`
 
@@ -43,7 +43,7 @@ Email + password, with magic link as a backup. There is no OAuth provider — se
 - [ ] Create the admin user in Studio with **"Auto Confirm User" checked**. An unconfirmed address fails as `email_not_confirmed`, which the login form deliberately reports as the generic "Invalid email or password" — so check the Supabase auth logs, not the UI
 - [ ] Add that address to `public.admin_users`. `is_admin()` matches on **email**, not user id, so no id linkage is required
 - [ ] Leave session timebox and inactivity timeout **OFF** — this is what makes sessions last indefinitely per device
-- [ ] Add `/auth/confirm` to the redirect allowlist for local **and** production (needed for magic link only; password sign-in uses no redirect). App Platform has no per-PR preview environments, so there is no preview scope to add
+- [ ] Add `/auth/confirm` to the redirect allowlist for local **and** production (needed for magic link only; password sign-in uses no redirect). App Platform creates no preview environments of its own. Vercel previews still appear on PRs while that project is kept as the rollback path, so a magic link tested on a preview URL needs that host allowlisted too
 - [ ] Run one password sign-in and one magic-link sign-in end to end
 
 ### Stage 4 — AI Docs

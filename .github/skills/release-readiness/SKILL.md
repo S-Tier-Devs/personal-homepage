@@ -19,7 +19,7 @@ description: Use before deploying to production — verifies build, tests, env p
 - [ ] No TypeScript errors (`npx tsc --noEmit`)
 
 ### Environment Parity
-- [ ] `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are correct `BUILD_TIME` values in `.do/app.yaml`; `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAIL` are set as `RUN_TIME` secrets in the DigitalOcean dashboard
+- [ ] `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (`BUILD_TIME`) and `ADMIN_EMAIL` (`RUN_TIME`, plain) are correct in `.do/app.yaml`; `SUPABASE_SERVICE_ROLE_KEY` is a `RUN_TIME` `SECRET` with a real value set out of band. Note an empty secret encrypts to an `EV[...]` blob that looks identical to a real one in the dashboard, so confirm it by behaviour, not by appearance
 - [ ] `NEXT_PUBLIC_SUPABASE_URL` points to production Supabase project (not local/staging)
 - [ ] `ADMIN_EMAIL` is set to the correct production admin address
 - [ ] No development-only flags or debug logging enabled in production build
