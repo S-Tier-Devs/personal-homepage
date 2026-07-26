@@ -12,8 +12,8 @@ description: Use when initializing a new project module or service from scratch 
 
 ## Required Inputs
 - Project name and description
-- Target stack (already defined: Next.js, Supabase, Vercel, TypeScript, Tailwind)
-- Deployment target (Vercel)
+- Target stack (already defined: Next.js, Supabase, DigitalOcean App Platform, TypeScript, Tailwind)
+- Deployment target (DigitalOcean App Platform)
 - Auth provider (Supabase + Google OAuth)
 
 ## Workflow Stages
@@ -32,7 +32,7 @@ description: Use when initializing a new project module or service from scratch 
 ### Stage 3 — Environment Setup
 - [ ] Create `.env.local` from `.env.example` template
 - [ ] Add: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_EMAIL`
-- [ ] Add same vars to Vercel project environment settings
+- [ ] Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` as `BUILD_TIME` values in `.do/app.yaml`; add `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAIL` as `RUN_TIME` secrets in the DigitalOcean App Platform dashboard, never in a file
 - [ ] Verify `.env.local` is git-ignored
 - [ ] Verify `.env.example` is committed even if the repo ignores `.env*`
 
@@ -43,7 +43,7 @@ Email + password, with magic link as a backup. There is no OAuth provider — se
 - [ ] Create the admin user in Studio with **"Auto Confirm User" checked**. An unconfirmed address fails as `email_not_confirmed`, which the login form deliberately reports as the generic "Invalid email or password" — so check the Supabase auth logs, not the UI
 - [ ] Add that address to `public.admin_users`. `is_admin()` matches on **email**, not user id, so no id linkage is required
 - [ ] Leave session timebox and inactivity timeout **OFF** — this is what makes sessions last indefinitely per device
-- [ ] Add `/auth/confirm` to the redirect allowlist for local, preview **and** production (needed for magic link only; password sign-in uses no redirect)
+- [ ] Add `/auth/confirm` to the redirect allowlist for local **and** production (needed for magic link only; password sign-in uses no redirect). App Platform has no per-PR preview environments, so there is no preview scope to add
 - [ ] Run one password sign-in and one magic-link sign-in end to end
 
 ### Stage 4 — AI Docs
@@ -71,11 +71,11 @@ Email + password, with magic link as a backup. There is no OAuth provider — se
 - [ ] `npm run lint` passes
 - [ ] `npm run build` passes
 - [ ] No secrets in git history (`git log --all -p | Select-String "ghp_|sk_|secret"`)
-- [ ] Vercel auto-deploy triggers on push to main
+- [ ] DigitalOcean App Platform auto-deploys `main` on merge (`deploy_on_push: true` in `.do/app.yaml`)
 - [ ] Supabase migration dry run reports expected SQL before apply and "up to date" after apply
 
 ## Failure Handling
 - If `create-next-app` fails midway, delete the directory and retry with `--yes` flag
-- If Vercel deploy fails, check environment variables match `.env.example` names exactly
+- If the DigitalOcean App Platform deploy fails, check environment variables match `.env.example` names exactly
 - If Supabase connection fails, verify `NEXT_PUBLIC_SUPABASE_URL` does not have a trailing slash
 - If git push requires a temporary credentialed remote URL, reset the remote to a clean HTTPS URL immediately after the push succeeds

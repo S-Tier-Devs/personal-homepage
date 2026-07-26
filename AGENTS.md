@@ -12,6 +12,12 @@ Public one-pager at `/`, private dashboard at `/dashboard`. Supabase provides Po
 
 **`design/patrick-beasley.dc.html` is the behavioural spec.** Cite its line numbers; do not paraphrase it from memory.
 
+## Deploy target
+
+DigitalOcean App Platform, app `personal-homepage`, region `nyc`. `.do/app.yaml` is the source of truth for the app spec - **never edit the app in the DO web console**, or the console and the spec drift. Production deploys from `main` on merge (`deploy_on_push: true`).
+
+The spec declares four env vars: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` at `BUILD_TIME` (Next.js inlines `NEXT_PUBLIC_*` at build time), plus `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAIL` as `RUN_TIME` secrets. The two secrets are set in the DO dashboard only, never committed to a file.
+
 ## Binding conventions
 
 `components/dashboard/links/` and `app/api/links/` are the reference implementation. Mirror them rather than inventing a new shape.

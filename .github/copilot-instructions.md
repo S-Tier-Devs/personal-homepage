@@ -1,10 +1,10 @@
 # Copilot Instructions — personal-homepage
 
 ## Purpose and Scope
-This workspace is the personal homepage for patrickbeasley.com, built with Next.js (App Router, TypeScript), Tailwind CSS, Supabase (Postgres + Auth + Storage), and deployed on Vercel. These instructions apply to all AI-assisted work in this repository.
+This workspace is the personal homepage for patrickbeasley.com, built with Next.js (App Router, TypeScript), Tailwind CSS, Supabase (Postgres + Auth + Storage), and deployed on DigitalOcean App Platform. These instructions apply to all AI-assisted work in this repository.
 
 ## Non-Negotiables
-- Never commit secrets, tokens, or credentials. All secrets go in `.env.local` (git-ignored) or Vercel environment variables.
+- Never commit secrets, tokens, or credentials. All secrets go in `.env.local` (git-ignored) or the DigitalOcean App Platform dashboard as `RUN_TIME` secrets - never in `.do/app.yaml`.
 - All auth-protected routes and API handlers must verify the session before acting.
 - Admin-only behavior must key off the `ADMIN_EMAIL` allowlist on the server side; client-side gating alone is never sufficient.
 - File uploads must be validated server-side: allowed extensions (`.pdf`, `.docx`, `.txt`, `.md`, `.sql`, `.py`) and max 10MB per file.

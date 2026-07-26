@@ -19,7 +19,7 @@ description: Use before deploying to production — verifies build, tests, env p
 - [ ] No TypeScript errors (`npx tsc --noEmit`)
 
 ### Environment Parity
-- [ ] All `.env.example` variables are set in Vercel production environment
+- [ ] `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are correct `BUILD_TIME` values in `.do/app.yaml`; `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAIL` are set as `RUN_TIME` secrets in the DigitalOcean dashboard
 - [ ] `NEXT_PUBLIC_SUPABASE_URL` points to production Supabase project (not local/staging)
 - [ ] `ADMIN_EMAIL` is set to the correct production admin address
 - [ ] No development-only flags or debug logging enabled in production build
@@ -30,7 +30,7 @@ description: Use before deploying to production — verifies build, tests, env p
 - [ ] No pending schema changes that conflict with deployed code
 
 ### Domain and Routing
-- [ ] `patrickbeasley.com` DNS records point to Vercel
+- [ ] `patrickbeasley.com` DNS records point to the DigitalOcean App Platform app; apex redirects to `www.patrickbeasley.com` per the ingress rule in `.do/app.yaml`
 - [ ] SSL certificate active and auto-renewing
 - [ ] `www.` redirect configured if needed
 - [ ] All internal links use relative paths or the production domain
@@ -62,8 +62,8 @@ description: Use before deploying to production — verifies build, tests, env p
 | Download private file as anonymous | Access denied |
 
 ## Rollback Readiness
-- [ ] Previous working deployment is identifiable in Vercel dashboard
-- [ ] Rollback to previous Vercel deployment tested (requires no schema rollback)
+- [ ] Previous working deployment is identifiable in the DigitalOcean App Platform dashboard
+- [ ] Rollback to a previous DigitalOcean App Platform deployment tested (requires no schema rollback)
 - [ ] If schema changed, rollback SQL is documented in migration file
 
 ## Release Notes Template
