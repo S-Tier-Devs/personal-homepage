@@ -18,6 +18,36 @@ DigitalOcean App Platform, app `personal-homepage`, region `nyc`. `.do/app.yaml`
 
 The spec declares four env vars: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` at `BUILD_TIME` (Next.js inlines `NEXT_PUBLIC_*` at build time), plus `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAIL` at `RUN_TIME`. Only `SUPABASE_SERVICE_ROLE_KEY` is a secret: it bypasses RLS, so it is `type: SECRET`, empty in the committed spec, and set out of band. `ADMIN_EMAIL` is a plain spec value; it is the contact address this site publishes and is only compared against an already-authenticated session, so it is not sensitive and belongs in the spec so the app is reproducible from it.
 
+### Never apply the committed spec directly
+
+`.do/app.yaml` is the source of truth for *review*, but **two of its values are deliberately blank and applying the file overwrites the live ones with empty**. Verified, not assumed: `doctl apps propose --app <id> --spec .do/app.yaml` returns a 63-character `EV[...]` blob for `SUPABASE_SERVICE_ROLE_KEY` where the real value is ~355. App Platform encrypts the empty string and stores it, so the dashboard shows a populated-looking secret and every health check stays green while admin requests throw.
+
+To change the app config, edit the **live** spec rather than the committed one:
+
+```bash
+doctl apps spec get <app-id> > /tmp/live.yaml   # carries real values
+# edit /tmp/live.yaml
+doctl apps propose --app <app-id> --spec /tmp/live.yaml --output json   # dry run, check envs
+doctl apps update <app-id> --spec /tmp/live.yaml
+```
+
+Then mirror the structural change back into `.do/app.yaml`, keeping the blank values blank. `doctl apps propose` is non-destructive and is the right way to check any spec change before applying it.
+
+Routine code changes need none of this: `deploy_on_push` rebuilds from `main` and does **not** apply the repo spec.
+
+### Migration leftovers (moved off Vercel 2026-07-26)
+
+True now, and not visible from the code:
+
+- **`www.patrickbeasley.com` is canonical and the apex redirect lives in the app spec, not DNS.** App Platform ALIAS domains *serve* rather than redirect, unlike Vercel, so the apex-to-www 308 is an `ingress` rule in `.do/app.yaml`. Nothing in DNS reveals it. Recreate the app from a spec lacking that rule and both hosts start serving identical content, breaking the canonical assumption `getSiteUrl()` in `lib/env.ts` depends on for magic-link redirects.
+- **A new subdomain will NOT reach this app.** `*.patrickbeasley.com` still points at Vercel as the rollback path, so `anything.patrickbeasley.com` resolves to Vercel. Only the apex and `www` are on DO. A real subdomain needs adding to the app spec *and* an explicit Cloudflare record that beats the wildcard.
+- **The Vercel project still exists and is still connected to this repo.** Pushes still trigger Vercel builds and PRs still get a Vercel preview URL. Those are the *old* host, not a preview of production, and they vanish at teardown.
+- **`disable_email_obfuscation: true` is load-bearing.** App Platform fronts with Cloudflare, which otherwise rewrites the contact `mailto:` into `/cdn-cgi/l/email-protection`. Removing the flag silently breaks the site's primary call to action for JavaScript-disabled visitors. Note the flag only takes effect on the deployment *after* the one that sets it.
+- **CAA records restrict issuance** to `pki.goog`, `sectigo.com`, `letsencrypt.org`. App Platform issues via Google Trust Services (`pki.goog`) - that is why new hostnames work, and narrowing CAA would break them silently.
+- Supabase is unchanged and the domain did not change, so the auth redirect allowlist needed no edit.
+
+Rollback for the whole hosting move is DNS-only: apex -> `f659688722b302e8.vercel-dns-017.com`, `www` -> `cname.vercel-dns-016.com`, both DNS-only. That apex target is domain-specific; jennsbeans.com uses a different one and swapping them serves the wrong site with no error. Nothing on Vercel has been torn down.
+
 ## Binding conventions
 
 `components/dashboard/links/` and `app/api/links/` are the reference implementation. Mirror them rather than inventing a new shape.

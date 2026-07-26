@@ -39,9 +39,14 @@ services:
       # lib/env.ts throws on a missing value rather than degrading, so the
       # admin paths fail loudly rather than silently misbehaving.
       #
-      # A genuine secret - it bypasses RLS. Left empty in the committed spec and
-      # set out of band. Applying this file as-is would NOT blank the stored
-      # value, but do not paste one in here either.
+      # A genuine secret - it bypasses RLS. Left empty here and set out of band.
+      #
+      # WARNING, verified with `doctl apps propose --app <id> --spec .do/app.yaml`:
+      # applying this file as-is DOES blank the live value. App Platform encrypts
+      # the empty string and stores it, so the dashboard still shows a populated
+      # EV[...] blob and every health check stays green while admin requests
+      # throw. See the safe-apply procedure in AGENTS.md - do not run
+      # `doctl apps update --spec .do/app.yaml` against this app directly.
       - key: SUPABASE_SERVICE_ROLE_KEY
         scope: RUN_TIME
         type: SECRET
