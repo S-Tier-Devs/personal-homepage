@@ -38,7 +38,7 @@ applyTo: "app/api/**,lib/**,supabase/**"
 ## Error Handling and Logging
 - Catch all async errors with try/catch in route handlers.
 - Log errors server-side with sufficient context (route, user id if available, error message).
-- Do not `console.log` in production — use a structured logger or Vercel logs.
+- Do not `console.log` in production - use a structured logger or DigitalOcean App Platform runtime logs.
 - Every API route with a TODO placeholder must be treated as a bug — never ship a user-facing route that logs instead of persists. Scan for TODO comments in `app/api/` before closing any phase.
 
 ## Contact Form

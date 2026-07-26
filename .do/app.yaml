@@ -1,0 +1,87 @@
+name: personal-homepage
+region: nyc
+# App Platform fronts with Cloudflare, which rewrites email addresses in the
+# served HTML by default: beasley.patrick@gmail.com becomes [email protected]
+# and the mailto: href becomes /cdn-cgi/l/email-protection#<hex>, restored only
+# by a Cloudflare JS decoder. This page says "Email is the best way to reach
+# me", so that link is the site's primary call to action and it silently stops
+# working without JavaScript. Vercel served a plain mailto:, so this keeps the
+# migration behaviour-preserving. Flip to false to take Cloudflare's scraper
+# protection instead - a deliberate product decision, not a hosting detail.
+disable_email_obfuscation: true
+services:
+  - name: web
+    github:
+      repo: S-Tier-Devs/personal-homepage
+      branch: main
+      deploy_on_push: true
+    build_command: npm run build
+    run_command: npm start
+    environment_slug: node-js
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    http_port: 3000
+    envs:
+      # NEXT_PUBLIC_* are inlined by Next.js at build time by literal text
+      # replacement, so BUILD_TIME scope is load-bearing. See lib/env.ts, which
+      # documents why these must stay static process.env references.
+      # Both values are filled in locally at app-create time and left empty
+      # here rather than committed.
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        scope: BUILD_TIME
+        value: ""
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        scope: BUILD_TIME
+        value: ""
+      # Both of these ARE used by this app, unlike jennys-homepage:
+      #   SUPABASE_SERVICE_ROLE_KEY -> lib/supabase/admin.ts
+      #   ADMIN_EMAIL               -> lib/auth/admin.ts
+      # lib/env.ts throws on a missing value rather than degrading, so the
+      # admin paths fail loudly rather than silently misbehaving.
+      #
+      # A genuine secret - it bypasses RLS. Left empty in the committed spec and
+      # set out of band. Applying this file as-is would NOT blank the stored
+      # value, but do not paste one in here either.
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      # NOT a secret, despite the plan declaring it one. This exact address is
+      # rendered publicly on the homepage as the primary contact link, and it is
+      # only ever compared against the email on an already-authenticated
+      # session, so knowing it grants nothing. Keeping it as a plain value makes
+      # the app reproducible from this spec instead of requiring a manual
+      # dashboard step to recreate.
+      - key: ADMIN_EMAIL
+        scope: RUN_TIME
+        value: "beasley.patrick@gmail.com"
+      # NEXT_PUBLIC_SITE_URL is deliberately NOT set. It is absent from Vercel
+      # production too, so the code defaults already describe live behaviour:
+      # getSiteUrl() falls back to the www host, while layout/robots/sitemap
+      # fall back to the apex. Setting it here would change canonical and
+      # sitemap URLs during a hosting migration. Unify it as its own change.
+domains:
+  - domain: www.patrickbeasley.com
+    type: PRIMARY
+  - domain: patrickbeasley.com
+    type: ALIAS
+ingress:
+  rules:
+    # Preserve the apex -> www redirect. On Vercel the apex 307-redirects to
+    # www, and this app treats www as canonical (lib/env.ts getSiteUrl, which
+    # magic-link redirect targets depend on). App Platform ALIAS domains SERVE
+    # rather than redirect - verified on pogo-db and jennsbeans, where the
+    # alias returns 200 - so without this rule the redirect silently
+    # disappears and both hosts serve identical content.
+    # This rule must come first; the catch-all below would otherwise match.
+    - match:
+        authority:
+          exact: patrickbeasley.com
+      redirect:
+        authority: www.patrickbeasley.com
+        redirect_code: 308
+    - match:
+        path:
+          prefix: /
+      component:
+        name: web

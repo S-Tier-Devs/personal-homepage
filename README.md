@@ -9,7 +9,7 @@
 | Framework | Next.js 16 (App Router, TypeScript) |
 | Styling | Tailwind CSS v4 |
 | Database, auth, storage | Supabase |
-| Hosting | Vercel |
+| Hosting | DigitalOcean App Platform |
 
 ## What it is
 
@@ -59,14 +59,17 @@ cp .env.example .env.local   # then fill it in
 npm run dev
 ```
 
-Required environment variables — all four must also exist in Vercel for **both** Preview and Production, which are separate scopes:
+Required environment variables for local development, see `.env.example`:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `NEXT_PUBLIC_SITE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
 - `ADMIN_EMAIL`
 
-`SUPABASE_SERVICE_ROLE_KEY` is used only for administrative scripts, never by the app. Never commit `.env.local`.
+In production (`.do/app.yaml`), `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are `BUILD_TIME` values baked in at build time. `SUPABASE_SERVICE_ROLE_KEY` is the only real secret: `RUN_TIME`, `type: SECRET`, empty in the committed spec and set out of band, because it bypasses RLS. `ADMIN_EMAIL` is a plain `RUN_TIME` value in the spec, not a secret - it is the address this site publishes as its contact link, and it is only compared against an already-authenticated session, so keeping it in the spec costs nothing and lets the app be recreated from that file alone. `NEXT_PUBLIC_SITE_URL` is deliberately not set in production, `getSiteUrl()` in `lib/env.ts` falls back to the `www` host.
+
+Never commit `.env.local`.
 
 ```bash
 npm run lint
@@ -74,6 +77,16 @@ npx tsc --noEmit
 npm test
 npm run build
 ```
+
+## Deployment
+
+Hosted on DigitalOcean App Platform, app `personal-homepage`, region `nyc`. `.do/app.yaml` is the source of truth for the app spec, including domains, ingress rules and env var scoping - never edit the app in the DO web console, or the console and the spec drift.
+
+Production deploys from `main` on merge (`deploy_on_push: true`). App Platform does not create per-PR preview environments. A Vercel preview URL may still appear on PRs, because the Vercel project is deliberately kept connected as the hosting rollback path; it disappears when that project is deleted at teardown. Verify locally with `npm run build && npm start` before merge, and check production after merge.
+
+`www.patrickbeasley.com` is canonical. The apex `patrickbeasley.com` redirects to it via an ingress rule in `.do/app.yaml` - it does not serve content directly.
+
+There is no container registry; DigitalOcean builds from GitHub source (`S-Tier-Devs/personal-homepage`) using buildpacks.
 
 ## Design source
 
