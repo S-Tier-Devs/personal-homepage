@@ -37,15 +37,24 @@ services:
       #   SUPABASE_SERVICE_ROLE_KEY -> lib/supabase/admin.ts
       #   ADMIN_EMAIL               -> lib/auth/admin.ts
       # lib/env.ts throws on a missing value rather than degrading, so the
-      # admin paths fail loudly until these are set in the DO dashboard.
+      # admin paths fail loudly rather than silently misbehaving.
+      #
+      # A genuine secret - it bypasses RLS. Left empty in the committed spec and
+      # set out of band. Applying this file as-is would NOT blank the stored
+      # value, but do not paste one in here either.
       - key: SUPABASE_SERVICE_ROLE_KEY
         scope: RUN_TIME
         type: SECRET
         value: ""
+      # NOT a secret, despite the plan declaring it one. This exact address is
+      # rendered publicly on the homepage as the primary contact link, and it is
+      # only ever compared against the email on an already-authenticated
+      # session, so knowing it grants nothing. Keeping it as a plain value makes
+      # the app reproducible from this spec instead of requiring a manual
+      # dashboard step to recreate.
       - key: ADMIN_EMAIL
         scope: RUN_TIME
-        type: SECRET
-        value: ""
+        value: "beasley.patrick@gmail.com"
       # NEXT_PUBLIC_SITE_URL is deliberately NOT set. It is absent from Vercel
       # production too, so the code defaults already describe live behaviour:
       # getSiteUrl() falls back to the www host, while layout/robots/sitemap
