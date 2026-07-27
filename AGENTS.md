@@ -40,13 +40,13 @@ Routine code changes need none of this: `deploy_on_push` rebuilds from `main` an
 True now, and not visible from the code:
 
 - **`www.patrickbeasley.com` is canonical and the apex redirect lives in the app spec, not DNS.** App Platform ALIAS domains *serve* rather than redirect, unlike Vercel, so the apex-to-www 308 is an `ingress` rule in `.do/app.yaml`. Nothing in DNS reveals it. Recreate the app from a spec lacking that rule and both hosts start serving identical content, breaking the canonical assumption `getSiteUrl()` in `lib/env.ts` depends on for magic-link redirects.
-- **A new subdomain will NOT reach this app.** `*.patrickbeasley.com` still points at Vercel as the rollback path, so `anything.patrickbeasley.com` resolves to Vercel. Only the apex and `www` are on DO. A real subdomain needs adding to the app spec *and* an explicit Cloudflare record that beats the wildcard.
-- **The Vercel project still exists and is still connected to this repo.** Pushes still trigger Vercel builds and PRs still get a Vercel preview URL. Those are the *old* host, not a preview of production, and they vanish at teardown.
+- **A new subdomain will NOT reach this app, and there is no Vercel fallback behind it any more.** `*.patrickbeasley.com` no longer points at Vercel — the wildcard CNAME was deleted 2026-07-27 and `anything.patrickbeasley.com` is now NXDOMAIN. Only the apex and `www` are on DO. A real subdomain needs adding to the app spec *and* an explicit Cloudflare record.
+- **The Vercel project no longer exists.** It was deleted 2026-07-27. Pushes no longer trigger Vercel builds and PRs no longer get a Vercel preview URL.
 - **`disable_email_obfuscation: true` is load-bearing.** App Platform fronts with Cloudflare, which otherwise rewrites the contact `mailto:` into `/cdn-cgi/l/email-protection`. Removing the flag silently breaks the site's primary call to action for JavaScript-disabled visitors. Note the flag only takes effect on the deployment *after* the one that sets it.
 - **CAA records restrict issuance** to `pki.goog`, `sectigo.com`, `letsencrypt.org`. App Platform issues via Google Trust Services (`pki.goog`) - that is why new hostnames work, and narrowing CAA would break them silently.
 - Supabase is unchanged and the domain did not change, so the auth redirect allowlist needed no edit.
 
-Rollback for the whole hosting move is DNS-only: apex -> `f659688722b302e8.vercel-dns-017.com`, `www` -> `cname.vercel-dns-016.com`, both DNS-only. That apex target is domain-specific; jennsbeans.com uses a different one and swapping them serves the wrong site with no error. Nothing on Vercel has been torn down.
+**The Vercel rollback was removed 2026-07-27** (wildcard CNAME and the `personal-homepage` Vercel project both deleted), so there is no DNS flip that restores service any more. If App Platform ever needs to be abandoned, recovery is a **redeploy of this repo onto App Platform** (or a new host) from `main`, not a DNS change — the site is reproducible from source, not from a standby deployment. The domain registration itself is unaffected by any of this and is still held at Vercel; see the registrar notes in the migration repo for that separate, ongoing thread.
 
 ## Binding conventions
 
