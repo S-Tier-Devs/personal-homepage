@@ -8,7 +8,7 @@ import {
   UNIQUE_VIOLATION,
   apiError,
   isUuid,
-  listCategorySiblingsDb,
+  listCategorySiblings,
   normalizeCategoryName,
   postgresErrorCode,
   readJsonObject,
@@ -21,7 +21,7 @@ import { dashboardCategories, dashboardLinks, dashboardNotes } from "@/lib/db/sc
  * The wire shape for a category. See app/api/categories/route.ts for why this
  * has to be named explicitly rather than selecting every column: the table
  * has a `created_at` column the `Category` contract (and the Supabase-era
- * `CATEGORY_COLUMNS`) never exposed.
+ * column list) never exposed.
  */
 const CATEGORY_FIELDS = {
   id: dashboardCategories.id,
@@ -142,7 +142,7 @@ export async function PATCH(
     return NextResponse.json(current, { status: 200 });
   }
 
-  const siblings = await listCategorySiblingsDb(db, current.ctx, current.kind);
+  const siblings = await listCategorySiblings(db, current.ctx, current.kind);
 
   if (!siblings) {
     return apiError("SERVER_ERROR", "Could not rename the category.", 500);
@@ -233,7 +233,7 @@ export async function DELETE(
 
   const current: Category = existing;
 
-  const siblings = await listCategorySiblingsDb(db, current.ctx, current.kind);
+  const siblings = await listCategorySiblings(db, current.ctx, current.kind);
 
   if (!siblings) {
     return apiError("SERVER_ERROR", "Could not delete the category.", 500);

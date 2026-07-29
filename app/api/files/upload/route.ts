@@ -9,6 +9,7 @@ import {
   fileExtension,
 } from "@/lib/dashboard/files";
 import { filesMetadata } from "@/lib/db/schema";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 /**
  * POST /api/files/upload
@@ -22,7 +23,8 @@ export async function POST(request: NextRequest) {
     return authResult.error;
   }
 
-  const { user, supabase, db } = authResult;
+  const { user, db } = authResult;
+  const supabase = await createServerSupabaseClient();
 
   try {
     const formData = await request.formData();

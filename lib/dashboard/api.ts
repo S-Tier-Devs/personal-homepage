@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 
 import type { DrizzleDb } from "@/lib/db/client";
 import { dashboardCategories } from "@/lib/db/schema";
-import type { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Category, CategoryKind, Ctx } from "@/lib/dashboard/types";
 
 /**
@@ -42,16 +41,6 @@ export type ApiErrorCode =
 export function apiError(error: ApiErrorCode, message: string, status: number) {
   return NextResponse.json({ error, message }, { status });
 }
-
-/** The client returned by `requireAdminAuth` — already scoped to the caller's session. */
-export type DashboardSupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
-
-export const LINK_COLUMNS =
-  "id, ctx, category_id, title, url, description, sort_order, pinned, created_at, updated_at, click_count, last_clicked_at";
-
-export const NOTE_COLUMNS = "id, ctx, category_id, title, content_html, created_at, updated_at";
-
-export const CATEGORY_COLUMNS = "id, ctx, kind, name, sort_order";
 
 /**
  * Category names are chips in a fixed-width card, and the column is unbounded
@@ -186,60 +175,6 @@ export function normalizeCategoryName(raw: unknown): string | null {
  * from a broken query rather than inventing `sort_order` 0 on an error.
  */
 export async function listCategorySiblings(
-  supabase: DashboardSupabaseClient,
-  ctx: Ctx,
-  kind: CategoryKind
-): Promise<Category[] | null> {
-  const { data, error } = await supabase
-    .from("dashboard_categories")
-    .select(CATEGORY_COLUMNS)
-    .eq("ctx", ctx)
-    .eq("kind", kind);
-
-  if (error) {
-    console.error("Category siblings read error:", error);
-    return null;
-  }
-
-  return (data ?? []) as Category[];
-}
-
-/**
- * Confirms a category exists and belongs to the same workspace and section as
- * the item being written. `ctx` is denormalized onto item rows for single-table
- * filtering, so the API — not the database — owns keeping the two in step.
- */
-export async function findMatchingCategory(
-  supabase: DashboardSupabaseClient,
-  categoryId: string,
-  ctx: Ctx,
-  kind: CategoryKind
-): Promise<Category | null> {
-  if (!isUuid(categoryId)) {
-    return null;
-  }
-
-  const { data, error } = await supabase
-    .from("dashboard_categories")
-    .select(CATEGORY_COLUMNS)
-    .eq("id", categoryId)
-    .maybeSingle();
-
-  if (error || !data) {
-    return null;
-  }
-
-  const category = data as Category;
-
-  return category.ctx === ctx && category.kind === kind ? category : null;
-}
-
-/**
- * Drizzle twins of listCategorySiblings/findMatchingCategory. The Supabase
- * versions remain until every route vertical has migrated (they die in the
- * cleanup task). Contracts are identical, including null-on-error.
- */
-export async function listCategorySiblingsDb(
   db: DrizzleDb,
   ctx: Ctx,
   kind: CategoryKind
@@ -248,8 +183,7 @@ export async function listCategorySiblingsDb(
     // Drizzle types `ctx`/`kind` as plain `text` columns (drizzle-kit doesn't
     // model the check constraints as enums), so the row type is wider than
     // `Category`. The database's check constraints guarantee the narrower
-    // union at runtime, same as the `data as Category[]` cast in
-    // listCategorySiblings above.
+    // union at runtime.
     const rows = await db
       .select()
       .from(dashboardCategories)
@@ -262,7 +196,12 @@ export async function listCategorySiblingsDb(
   }
 }
 
-export async function findMatchingCategoryDb(
+/**
+ * Confirms a category exists and belongs to the same workspace and section as
+ * the item being written. `ctx` is denormalized onto item rows for single-table
+ * filtering, so the API — not the database — owns keeping the two in step.
+ */
+export async function findMatchingCategory(
   db: DrizzleDb,
   categoryId: string,
   ctx: Ctx,

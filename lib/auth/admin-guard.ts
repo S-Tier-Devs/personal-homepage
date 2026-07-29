@@ -8,10 +8,13 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 /**
  * Middleware guard for admin-protected API routes.
  * Verifies user is authenticated and has admin email.
- * Returns { user, supabase, db } on success or NextResponse (401/403) on failure.
- * `db` is the Drizzle handle for `apps-pg`; `supabase` remains for session
- * cookies and (until Phase 2) storage. Routes should consume `db` for all data
- * queries.
+ * Returns { user, db } on success or NextResponse (401/403) on failure.
+ * `db` is the Drizzle handle for `apps-pg`, and routes should consume it for
+ * all data queries. A Supabase client is still created internally because
+ * `verifyClaims` needs one for session verification (auth does not move until
+ * Phase 3), but it is no longer part of the returned shape. Routes that still
+ * need Supabase Storage (until Phase 2) create their own client with
+ * `createServerSupabaseClient()` after calling this guard.
  */
 export async function requireAdminAuth(_request: NextRequest) {
   try {
@@ -39,7 +42,7 @@ export async function requireAdminAuth(_request: NextRequest) {
 
     // `user` keeps its shape for app/api/files/upload/route.ts:94, which reads
     // `user.id` for the `uploaded_by` column.
-    return { user: { id: claims.id, email: claims.email }, supabase, db: getDb() };
+    return { user: { id: claims.id, email: claims.email }, db: getDb() };
   } catch (err) {
     console.error("Admin auth guard error:", err);
     return {

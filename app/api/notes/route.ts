@@ -2,7 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, findMatchingCategoryDb, readJsonObject } from "@/lib/dashboard/api";
+import { apiError, findMatchingCategory, readJsonObject } from "@/lib/dashboard/api";
 import { isCtx, type NoteItem } from "@/lib/dashboard/types";
 import { dashboardNotes } from "@/lib/db/schema";
 import {
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const category = await findMatchingCategoryDb(db, categoryId, ctx, "note");
+  const category = await findMatchingCategory(db, categoryId, ctx, "note");
 
   if (!category) {
     return apiError(

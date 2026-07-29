@@ -2,7 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, findMatchingCategoryDb, normalizeUrl, readJsonObject } from "@/lib/dashboard/api";
+import { apiError, findMatchingCategory, normalizeUrl, readJsonObject } from "@/lib/dashboard/api";
 import { isCtx, type LinkItem } from "@/lib/dashboard/types";
 import { dashboardLinks } from "@/lib/db/schema";
 
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
     return apiError("INVALID_BODY", "description must be a string.", 400);
   }
 
-  const category = await findMatchingCategoryDb(db, categoryId, ctx, "link");
+  const category = await findMatchingCategory(db, categoryId, ctx, "link");
 
   if (!category) {
     return apiError(

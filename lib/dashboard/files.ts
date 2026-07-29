@@ -18,15 +18,6 @@ export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 export const MAX_FILE_SIZE_LABEL = `${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB`;
 
 /**
- * Columns of `files_metadata` that the list contract exposes.
- *
- * `storage_path` and `uploaded_by` are deliberately excluded: nothing in the UI
- * needs them, and the storage path is the one field worth not handing out.
- */
-export const FILE_COLUMNS =
-  "id, file_name, file_size_bytes, visibility, created_at, description, mime_type, file_extension";
-
-/**
  * `.pdf` from `report.final.pdf`; empty string when the name has no extension.
  *
  * The naive `slice(lastIndexOf("."))` returns the *last character* for a name

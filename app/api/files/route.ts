@@ -9,8 +9,7 @@ import { filesMetadata } from "@/lib/db/schema";
 /**
  * The wire shape for a document. `storage_path` and `uploaded_by` are
  * deliberately excluded — nothing in the UI needs them, and the storage path
- * is the one field worth not handing out. Mirrors the Supabase-era
- * `FILE_COLUMNS` (lib/dashboard/files.ts), kept for Task 8's cleanup.
+ * is the one field worth not handing out.
  */
 const FILE_FIELDS = {
   id: filesMetadata.id,

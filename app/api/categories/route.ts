@@ -6,7 +6,7 @@ import {
   CATEGORY_NAME_MAX_LENGTH,
   UNIQUE_VIOLATION,
   apiError,
-  listCategorySiblingsDb,
+  listCategorySiblings,
   normalizeCategoryName,
   postgresErrorCode,
   readJsonObject,
@@ -18,7 +18,7 @@ import { dashboardCategories } from "@/lib/db/schema";
  * The wire shape for a category: `dashboard_categories` also has a
  * `created_at` column (carried for the schema's own bookkeeping), but the
  * `Category` contract never included it — the Supabase-era routes selected
- * `CATEGORY_COLUMNS` ("id, ctx, kind, name, sort_order") rather than `*`. An
+ * "id, ctx, kind, name, sort_order" rather than `*`. An
  * unqualified `db.select().from(dashboardCategories)` would pull every
  * column, so every select/insert/update that returns a category to the
  * client names its fields explicitly to keep the response byte-for-byte
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const siblings = await listCategorySiblingsDb(db, ctx, kind);
+  const siblings = await listCategorySiblings(db, ctx, kind);
 
   if (!siblings) {
     return apiError("SERVER_ERROR", "Could not save the category.", 500);

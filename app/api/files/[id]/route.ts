@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
 import { apiError, isUuid, readJsonObject } from "@/lib/dashboard/api";
 import { filesMetadata } from "@/lib/db/schema";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 /**
  * PATCH /api/files/[id]
@@ -99,7 +100,8 @@ export async function DELETE(
     return authResult.error;
   }
 
-  const { supabase, db } = authResult;
+  const { db } = authResult;
+  const supabase = await createServerSupabaseClient();
   const { id } = await params;
 
   if (!isUuid(id)) {

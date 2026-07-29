@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, findMatchingCategoryDb, isUuid, normalizeUrl, readJsonObject } from "@/lib/dashboard/api";
+import { apiError, findMatchingCategory, isUuid, normalizeUrl, readJsonObject } from "@/lib/dashboard/api";
 import { isCtx, type Ctx, type LinkItem } from "@/lib/dashboard/types";
 import { dashboardLinks } from "@/lib/db/schema";
 
@@ -135,7 +135,7 @@ export async function PATCH(
   if (updates.ctx !== undefined || updates.category_id !== undefined) {
     const effectiveCtx = updates.ctx ?? current.ctx;
     const effectiveCategoryId = updates.category_id ?? current.category_id;
-    const category = await findMatchingCategoryDb(db, effectiveCategoryId, effectiveCtx, "link");
+    const category = await findMatchingCategory(db, effectiveCategoryId, effectiveCtx, "link");
 
     if (!category) {
       return apiError(

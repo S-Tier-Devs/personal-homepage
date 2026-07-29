@@ -13,8 +13,7 @@ export const metadata: Metadata = {
 /**
  * The wire shape for a document. See app/api/files/route.ts for why this has
  * to be named explicitly rather than selecting every column: `storage_path`
- * and `uploaded_by` are excluded, matching the Supabase-era `FILE_COLUMNS`
- * (lib/dashboard/files.ts).
+ * and `uploaded_by` are excluded, matching that route's `FILE_FIELDS`.
  */
 const FILE_FIELDS = {
   id: filesMetadata.id,

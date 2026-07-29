@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, findMatchingCategoryDb, isUuid, readJsonObject } from "@/lib/dashboard/api";
+import { apiError, findMatchingCategory, isUuid, readJsonObject } from "@/lib/dashboard/api";
 import { isCtx, type Ctx, type NoteItem } from "@/lib/dashboard/types";
 import { dashboardNotes } from "@/lib/db/schema";
 import {
@@ -141,7 +141,7 @@ export async function PATCH(
   if (updates.ctx !== undefined || updates.category_id !== undefined) {
     const effectiveCtx = updates.ctx ?? current.ctx;
     const effectiveCategoryId = updates.category_id ?? current.category_id;
-    const category = await findMatchingCategoryDb(db, effectiveCategoryId, effectiveCtx, "note");
+    const category = await findMatchingCategory(db, effectiveCategoryId, effectiveCtx, "note");
 
     if (!category) {
       return apiError(
