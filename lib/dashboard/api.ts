@@ -1,5 +1,8 @@
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
+import type { DrizzleDb } from "@/lib/db/client";
+import { dashboardCategories } from "@/lib/db/schema";
 import type { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Category, CategoryKind, Ctx } from "@/lib/dashboard/types";
 
@@ -69,7 +72,12 @@ export const CATEGORY_NAME_MAX_LENGTH = 40;
 export const UNIQUE_VIOLATION = "23505";
 export const FOREIGN_KEY_VIOLATION = "23503";
 
-/** Reads the SQLSTATE off a PostgREST error without asserting its whole shape. */
+/**
+ * Reads the SQLSTATE off a PostgREST *or postgres.js* error without asserting
+ * its whole shape. postgres.js errors carry the same string `code` SQLSTATE
+ * property PostgREST errors did, so this works unchanged for the Drizzle call
+ * sites too.
+ */
 export function postgresErrorCode(error: unknown): string | null {
   if (typeof error !== "object" || error === null) {
     return null;
@@ -224,4 +232,61 @@ export async function findMatchingCategory(
   const category = data as Category;
 
   return category.ctx === ctx && category.kind === kind ? category : null;
+}
+
+/**
+ * Drizzle twins of listCategorySiblings/findMatchingCategory. The Supabase
+ * versions remain until every route vertical has migrated (they die in the
+ * cleanup task). Contracts are identical, including null-on-error.
+ */
+export async function listCategorySiblingsDb(
+  db: DrizzleDb,
+  ctx: Ctx,
+  kind: CategoryKind
+): Promise<Category[] | null> {
+  try {
+    // Drizzle types `ctx`/`kind` as plain `text` columns (drizzle-kit doesn't
+    // model the check constraints as enums), so the row type is wider than
+    // `Category`. The database's check constraints guarantee the narrower
+    // union at runtime, same as the `data as Category[]` cast in
+    // listCategorySiblings above.
+    const rows = await db
+      .select()
+      .from(dashboardCategories)
+      .where(and(eq(dashboardCategories.ctx, ctx), eq(dashboardCategories.kind, kind)));
+
+    return rows as Category[];
+  } catch (error) {
+    console.error("Category siblings read error:", error);
+    return null;
+  }
+}
+
+export async function findMatchingCategoryDb(
+  db: DrizzleDb,
+  categoryId: string,
+  ctx: Ctx,
+  kind: CategoryKind
+): Promise<Category | null> {
+  if (!isUuid(categoryId)) {
+    return null;
+  }
+
+  try {
+    const rows = await db
+      .select()
+      .from(dashboardCategories)
+      .where(eq(dashboardCategories.id, categoryId))
+      .limit(1);
+
+    const category = rows[0];
+
+    if (!category) {
+      return null;
+    }
+
+    return category.ctx === ctx && category.kind === kind ? (category as Category) : null;
+  } catch {
+    return null;
+  }
 }
