@@ -61,13 +61,8 @@ export const CATEGORY_NAME_MAX_LENGTH = 40;
 export const UNIQUE_VIOLATION = "23505";
 export const FOREIGN_KEY_VIOLATION = "23503";
 
-/**
- * Reads the SQLSTATE off a PostgREST *or postgres.js* error without asserting
- * its whole shape. postgres.js errors carry the same string `code` SQLSTATE
- * property PostgREST errors did, so this works unchanged for the Drizzle call
- * sites too.
- */
-export function postgresErrorCode(error: unknown): string | null {
+/** Reads a string `code` property off an unknown value, or null. */
+function readSqlstate(error: unknown): string | null {
   if (typeof error !== "object" || error === null) {
     return null;
   }
@@ -75,6 +70,32 @@ export function postgresErrorCode(error: unknown): string | null {
   const { code } = error as { code?: unknown };
 
   return typeof code === "string" ? code : null;
+}
+
+/**
+ * Reads the SQLSTATE off a PostgREST, postgres.js, *or drizzle-wrapped* error
+ * without asserting its whole shape.
+ *
+ * drizzle-orm wraps every query failure in a `DrizzleQueryError` that carries
+ * no `code` of its own — the postgres.js `PostgresError` (which has the
+ * string SQLSTATE `code`) rides on the wrapper's `cause`. Without the one
+ * level of unwrapping below, this returned null for every Drizzle error and
+ * the 23505/23503 → 409 nets in the category routes could never fire.
+ * Shape-checked rather than `instanceof` drizzle internals on purpose; one
+ * level is all drizzle ever adds.
+ */
+export function postgresErrorCode(error: unknown): string | null {
+  const direct = readSqlstate(error);
+
+  if (direct !== null) {
+    return direct;
+  }
+
+  if (typeof error === "object" && error !== null) {
+    return readSqlstate((error as { cause?: unknown }).cause);
+  }
+
+  return null;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

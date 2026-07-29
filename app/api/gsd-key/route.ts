@@ -17,9 +17,23 @@ import { testGsdKey } from "@/lib/gsd/client";
 /** Sanity cap; real GSD keys are far shorter. Verification is the true gate. */
 const GSD_KEY_MAX_LENGTH = 200;
 
-/** Only the SQLSTATE and message — never a raw error object that could carry the key. */
+/**
+ * Only the SQLSTATE and a parameter-free message — never a raw error object,
+ * and never a drizzle wrapper's message. drizzle-orm wraps every query
+ * failure in `DrizzleQueryError`, whose message embeds the query *params* —
+ * for the gsd_config upsert those include the full api_key — so logging
+ * `error.message` here leaked the key. The wrapper's `cause` is postgres.js's
+ * `PostgresError`, whose message carries no parameter values; log that
+ * instead.
+ */
 function logKeyError(label: string, error: unknown) {
-  console.error(label, postgresErrorCode(error), error instanceof Error ? error.message : String(error));
+  const cause = error instanceof Error && error.cause !== undefined ? error.cause : error;
+
+  console.error(
+    label,
+    postgresErrorCode(error),
+    cause instanceof Error ? cause.message : String(cause)
+  );
 }
 
 /**

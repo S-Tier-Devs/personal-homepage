@@ -22,12 +22,17 @@ export async function resolveGsdKey(): Promise<string | null> {
 
     return rows[0]?.api_key ?? null;
   } catch (error) {
-    // Only the SQLSTATE and message — never the raw error object, which
-    // could carry the key via a driver's query-echo behavior.
+    // Only the SQLSTATE and a parameter-free message — never the raw error
+    // object. drizzle wraps query failures in DrizzleQueryError, whose
+    // message embeds the query params; this SELECT has none, but log the
+    // unwrapped cause's message anyway so every gsd_config log path follows
+    // the same never-log-the-wrapper rule as app/api/gsd-key/route.ts.
+    const cause = error instanceof Error && error.cause !== undefined ? error.cause : error;
+
     console.error(
       "GSD key lookup error:",
       postgresErrorCode(error),
-      error instanceof Error ? error.message : String(error)
+      cause instanceof Error ? cause.message : String(cause)
     );
     return null;
   }
