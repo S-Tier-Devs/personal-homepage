@@ -1,14 +1,10 @@
+import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import {
-  NOTE_COLUMNS,
-  apiError,
-  findMatchingCategory,
-  isUuid,
-  readJsonObject,
-} from "@/lib/dashboard/api";
+import { apiError, findMatchingCategoryDb, isUuid, readJsonObject } from "@/lib/dashboard/api";
 import { isCtx, type Ctx, type NoteItem } from "@/lib/dashboard/types";
+import { dashboardNotes } from "@/lib/db/schema";
 import {
   NOTE_CONTENT_MAX_LENGTH,
   NOTE_TITLE_MAX_LENGTH,
@@ -18,8 +14,8 @@ import {
 /**
  * Only the columns PATCH is allowed to write; every key is optional.
  *
- * `updated_at` is deliberately absent: the `dashboard_notes_set_updated_at`
- * trigger owns it, and the "Recent" sort would be wrong if the API raced it.
+ * `updated_at` is deliberately absent: the schema's `$onUpdate` owns it, and
+ * the "Recent" sort would be wrong if the API raced it.
  */
 interface NoteUpdate {
   ctx?: Ctx;
@@ -50,7 +46,7 @@ export async function PATCH(
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const { id } = await params;
 
   if (!isUuid(id)) {
@@ -63,14 +59,21 @@ export async function PATCH(
     return apiError("INVALID_BODY", "Request body must be a JSON object.", 400);
   }
 
-  const { data: existing, error: readError } = await supabase
-    .from("dashboard_notes")
-    .select(NOTE_COLUMNS)
-    .eq("id", id)
-    .maybeSingle();
+  let existing: NoteItem | undefined;
 
-  if (readError) {
-    console.error("Note read error:", readError);
+  try {
+    // Drizzle types `ctx` as plain `text`, wider than `NoteItem`'s `Ctx` union;
+    // the check constraint guarantees the narrower type at runtime, same cast
+    // used for the category twins in lib/dashboard/api.ts.
+    const rows = (await db
+      .select()
+      .from(dashboardNotes)
+      .where(eq(dashboardNotes.id, id))
+      .limit(1)) as NoteItem[];
+
+    existing = rows[0];
+  } catch (error) {
+    console.error("Note read error:", error);
     return apiError("SERVER_ERROR", "Could not load the note.", 500);
   }
 
@@ -138,7 +141,7 @@ export async function PATCH(
   if (updates.ctx !== undefined || updates.category_id !== undefined) {
     const effectiveCtx = updates.ctx ?? current.ctx;
     const effectiveCategoryId = updates.category_id ?? current.category_id;
-    const category = await findMatchingCategory(supabase, effectiveCategoryId, effectiveCtx, "note");
+    const category = await findMatchingCategoryDb(db, effectiveCategoryId, effectiveCtx, "note");
 
     if (!category) {
       return apiError(
@@ -149,25 +152,22 @@ export async function PATCH(
     }
   }
 
-  const { data, error } = await supabase
-    .from("dashboard_notes")
-    .update(updates)
-    .eq("id", id)
-    .select(NOTE_COLUMNS)
-    .maybeSingle();
+  try {
+    const [note] = (await db
+      .update(dashboardNotes)
+      .set(updates)
+      .where(eq(dashboardNotes.id, id))
+      .returning()) as NoteItem[];
 
-  if (error) {
+    if (!note) {
+      return apiError("NOT_FOUND", "No note with that id.", 404);
+    }
+
+    return NextResponse.json(note, { status: 200 });
+  } catch (error) {
     console.error("Note update error:", error);
     return apiError("SERVER_ERROR", "Could not update the note.", 500);
   }
-
-  if (!data) {
-    return apiError("NOT_FOUND", "No note with that id.", 404);
-  }
-
-  const note: NoteItem = data;
-
-  return NextResponse.json(note, { status: 200 });
 }
 
 /**
@@ -184,28 +184,26 @@ export async function DELETE(
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const { id } = await params;
 
   if (!isUuid(id)) {
     return apiError("NOT_FOUND", "No note with that id.", 404);
   }
 
-  const { data, error } = await supabase
-    .from("dashboard_notes")
-    .delete()
-    .eq("id", id)
-    .select("id")
-    .maybeSingle();
+  try {
+    const deleted = await db
+      .delete(dashboardNotes)
+      .where(eq(dashboardNotes.id, id))
+      .returning({ id: dashboardNotes.id });
 
-  if (error) {
+    if (deleted.length === 0) {
+      return apiError("NOT_FOUND", "No note with that id.", 404);
+    }
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (error) {
     console.error("Note delete error:", error);
     return apiError("SERVER_ERROR", "Could not delete the note.", 500);
   }
-
-  if (!data) {
-    return apiError("NOT_FOUND", "No note with that id.", 404);
-  }
-
-  return NextResponse.json({ ok: true }, { status: 200 });
 }

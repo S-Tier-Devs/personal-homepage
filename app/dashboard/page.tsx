@@ -1,3 +1,4 @@
+import { asc, desc, eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
@@ -6,9 +7,9 @@ import OverviewCard from "@/components/dashboard/overview/overview-card";
 import RecentNotes from "@/components/dashboard/overview/recent-notes";
 import TasksBrief from "@/components/dashboard/overview/tasks-brief";
 import TasksBriefSkeleton from "@/components/dashboard/overview/tasks-brief-skeleton";
-import { LINK_COLUMNS, NOTE_COLUMNS } from "@/lib/dashboard/api";
 import type { LinkItem, NoteItem } from "@/lib/dashboard/types";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getDb, type DrizzleDb } from "@/lib/db/client";
+import { dashboardLinks, dashboardNotes } from "@/lib/db/schema";
 
 export const metadata: Metadata = {
   title: "Overview",
@@ -18,43 +19,68 @@ export const metadata: Metadata = {
 // match the Tasks page's explicitness.
 export const dynamic = "force-dynamic";
 
+/** Mirrors a PostgREST `{ data, error }` result so the error-combination logic
+ * below (`notesError = workResult.error ?? homeResult.error`) is unchanged
+ * from the Supabase-era page, even though Drizzle throws instead of returning
+ * an error object. */
+interface QueryResult<T> {
+  data: T[];
+  error: unknown;
+}
+
+async function fetchWorkspaceNotes(
+  db: DrizzleDb,
+  ctx: "work" | "home"
+): Promise<QueryResult<NoteItem>> {
+  try {
+    // dashboard_notes has no columns beyond NoteItem's contract, so a plain
+    // `select()` does not leak anything (unlike dashboard_categories).
+    const rows = (await db
+      .select()
+      .from(dashboardNotes)
+      .where(eq(dashboardNotes.ctx, ctx))
+      .orderBy(desc(dashboardNotes.updated_at))
+      .limit(5)) as NoteItem[];
+
+    return { data: rows, error: null };
+  } catch (error) {
+    return { data: [], error };
+  }
+}
+
+async function fetchWorkspaceLinks(
+  db: DrizzleDb,
+  ctx: "work" | "home"
+): Promise<QueryResult<LinkItem>> {
+  try {
+    const rows = (await db
+      .select()
+      .from(dashboardLinks)
+      .where(eq(dashboardLinks.ctx, ctx))
+      .orderBy(desc(dashboardLinks.click_count), asc(dashboardLinks.title))
+      .limit(5)) as LinkItem[];
+
+    return { data: rows, error: null };
+  } catch (error) {
+    return { data: [], error };
+  }
+}
+
 /**
  * Post-login briefing: due & overdue tasks (streamed — GSD is an external
  * call and must not block the page), then recent notes. The notes queries
- * are fast Supabase reads, awaited before first byte; per-workspace limits
- * keep one workspace from starving the other in the client-side re-filter.
+ * are fast reads, awaited before first byte; per-workspace limits keep one
+ * workspace from starving the other in the client-side re-filter.
  */
 export default async function OverviewPage() {
   // The dashboard layout has already established that the caller is the admin.
-  const supabase = await createServerSupabaseClient();
+  const db = getDb();
 
   const [workResult, homeResult, workLinksResult, homeLinksResult] = await Promise.all([
-    supabase
-      .from("dashboard_notes")
-      .select(NOTE_COLUMNS)
-      .eq("ctx", "work")
-      .order("updated_at", { ascending: false })
-      .limit(5),
-    supabase
-      .from("dashboard_notes")
-      .select(NOTE_COLUMNS)
-      .eq("ctx", "home")
-      .order("updated_at", { ascending: false })
-      .limit(5),
-    supabase
-      .from("dashboard_links")
-      .select(LINK_COLUMNS)
-      .eq("ctx", "work")
-      .order("click_count", { ascending: false })
-      .order("title", { ascending: true })
-      .limit(5),
-    supabase
-      .from("dashboard_links")
-      .select(LINK_COLUMNS)
-      .eq("ctx", "home")
-      .order("click_count", { ascending: false })
-      .order("title", { ascending: true })
-      .limit(5),
+    fetchWorkspaceNotes(db, "work"),
+    fetchWorkspaceNotes(db, "home"),
+    fetchWorkspaceLinks(db, "work"),
+    fetchWorkspaceLinks(db, "home"),
   ]);
 
   const notesError = workResult.error ?? homeResult.error;
