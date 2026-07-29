@@ -1,37 +1,63 @@
+import { asc } from "drizzle-orm";
 import type { Metadata } from "next";
 
 import GsdKeyCard from "@/components/dashboard/settings/gsd-key-card";
 import SettingsView from "@/components/dashboard/settings/settings-view";
-import { CATEGORY_COLUMNS } from "@/lib/dashboard/api";
 import type { Category, GsdKeyStatus } from "@/lib/dashboard/types";
+import { getDb } from "@/lib/db/client";
+import { dashboardCategories } from "@/lib/db/schema";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
   title: "Settings",
 };
 
+/**
+ * The wire shape for a category. See app/api/categories/route.ts for why this
+ * has to be named explicitly rather than selecting every column: the table
+ * has a `created_at` column the `Category` contract never exposed.
+ */
+const CATEGORY_FIELDS = {
+  id: dashboardCategories.id,
+  ctx: dashboardCategories.ctx,
+  kind: dashboardCategories.kind,
+  name: dashboardCategories.name,
+  sort_order: dashboardCategories.sort_order,
+};
+
 export default async function SettingsPage() {
-  // The dashboard layout has already established that the caller is the admin,
-  // and RLS restricts these tables to that same identity.
+  // The dashboard layout has already established that the caller is the admin.
+  // The GSD key card still reads through Supabase/RLS (Task 7's scope); the
+  // category list below reads through Drizzle.
+  const db = getDb();
   const supabase = await createServerSupabaseClient();
 
   // Unlike Links and Notes, this page never filters by workspace: the design
   // renders a Work card and a Home card side by side, so the whole table is the
   // payload rather than a per-workspace slice.
-  const [categoriesResult, keyResult] = await Promise.all([
-    supabase
-      .from("dashboard_categories")
-      .select(CATEGORY_COLUMNS)
-      .order("ctx", { ascending: true })
-      .order("kind", { ascending: true })
-      .order("sort_order", { ascending: true }),
-    // Status only — key_last4/updated_at. The api_key column is never read
-    // for display anywhere in the app.
-    supabase.from("gsd_config").select("key_last4, updated_at").maybeSingle(),
-  ]);
+  //
+  // Both queries are kicked off before either is awaited, preserving the old
+  // concurrent Promise.all behavior; a failed status read is non-fatal (the
+  // card starts as "not connected"), but a failed category read is fatal, so
+  // each is handled on its own terms rather than forced into a shared shape.
+  const categoriesPromise = db
+    .select(CATEGORY_FIELDS)
+    .from(dashboardCategories)
+    .orderBy(
+      asc(dashboardCategories.ctx),
+      asc(dashboardCategories.kind),
+      asc(dashboardCategories.sort_order)
+    );
+  // Status only — key_last4/updated_at. The api_key column is never read
+  // for display anywhere in the app.
+  const keyResultPromise = supabase.from("gsd_config").select("key_last4, updated_at").maybeSingle();
 
-  if (categoriesResult.error) {
-    console.error("Settings page load error:", categoriesResult.error);
+  let categories: Category[];
+
+  try {
+    categories = (await categoriesPromise) as Category[];
+  } catch (error) {
+    console.error("Settings page load error:", error);
 
     return (
       <section className="rounded-2xl border border-border bg-surface p-5 shadow">
@@ -44,13 +70,12 @@ export default async function SettingsPage() {
     );
   }
 
-  // A failed status read is non-fatal: the card starts as "not connected" and
-  // the routes report real errors on any action.
+  const keyResult = await keyResultPromise;
+
   if (keyResult.error) {
     console.error("Settings GSD key status error:", keyResult.error);
   }
 
-  const categories: Category[] = categoriesResult.data ?? [];
   const keyStatus: GsdKeyStatus = {
     configured: !keyResult.error && keyResult.data !== null,
     last4: keyResult.data?.key_last4 ?? null,
