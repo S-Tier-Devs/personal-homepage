@@ -36,10 +36,12 @@ export default async function SettingsPage() {
   // renders a Work card and a Home card side by side, so the whole table is the
   // payload rather than a per-workspace slice.
   //
-  // Both queries are kicked off before either is awaited, preserving the old
-  // concurrent Promise.all behavior; a failed status read is non-fatal (the
-  // card starts as "not connected"), but a failed category read is fatal, so
-  // each is handled on its own terms rather than forced into a shared shape.
+  // Both drizzle-orm's QueryPromise and postgrest-js's PostgrestBuilder are
+  // lazy thenables — nothing runs until `.then()`/`await`, so building the two
+  // query objects up front does not start them. `Promise.all` is what
+  // actually fires both in the same tick; a failed status read is non-fatal
+  // (the card starts as "not connected"), but a failed category read is
+  // fatal, so each result is still handled on its own terms below.
   const categoriesPromise = db
     .select(CATEGORY_FIELDS)
     .from(dashboardCategories)
@@ -53,9 +55,13 @@ export default async function SettingsPage() {
   const keyResultPromise = supabase.from("gsd_config").select("key_last4, updated_at").maybeSingle();
 
   let categories: Category[];
+  let keyResult: Awaited<typeof keyResultPromise>;
 
   try {
-    categories = (await categoriesPromise) as Category[];
+    const [categoryRows, keyRes] = await Promise.all([categoriesPromise, keyResultPromise]);
+
+    categories = categoryRows as Category[];
+    keyResult = keyRes;
   } catch (error) {
     console.error("Settings page load error:", error);
 
@@ -69,8 +75,6 @@ export default async function SettingsPage() {
       </section>
     );
   }
-
-  const keyResult = await keyResultPromise;
 
   if (keyResult.error) {
     console.error("Settings GSD key status error:", keyResult.error);
