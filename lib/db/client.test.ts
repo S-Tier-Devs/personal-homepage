@@ -7,11 +7,11 @@ describe("db client configuration", () => {
     expect(POOL_MAX).toBe(4);
   });
 
-  it("registers string parsers for both timestamp OIDs", () => {
-    // 1184 = timestamptz, 1114 = timestamp — PostgREST returned strings for
-    // both; Date objects here would silently change the wire format and every
-    // formatDate call site.
-    expect(TIMESTAMP_PARSER_IDS).toEqual([1184, 1114]);
+  it("registers string parsers for all three date/time OIDs", () => {
+    // 1184 = timestamptz, 1114 = timestamp, 1082 = date — PostgREST returned
+    // strings for all three; Date objects here would silently change the
+    // wire format and every formatDate call site.
+    expect(TIMESTAMP_PARSER_IDS).toEqual([1184, 1114, 1082]);
   });
 
   it("passes timestamp text through verbatim", () => {

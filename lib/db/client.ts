@@ -11,8 +11,8 @@ import * as schema from "./schema";
  */
 export const POOL_MAX = 4;
 
-/** postgres.js type OIDs overridden to return strings: timestamptz, timestamp. */
-export const TIMESTAMP_PARSER_IDS = [1184, 1114] as const;
+/** postgres.js type OIDs overridden to return strings: timestamptz, timestamp, date. */
+export const TIMESTAMP_PARSER_IDS = [1184, 1114, 1082] as const;
 
 export function parseTimestamptz(value: string): string {
   return value;
@@ -34,6 +34,7 @@ function buildDb() {
     types: {
       timestamptz: { to: 1184, from: [1184], serialize: (v: string) => v, parse: parseTimestamptz },
       timestamp: { to: 1114, from: [1114], serialize: (v: string) => v, parse: parseTimestamptz },
+      date: { to: 1082, from: [1082], serialize: (v: string) => v, parse: parseTimestamptz },
     },
   });
 
