@@ -86,7 +86,25 @@ function buildDb() {
     types: TIMESTAMP_TYPE_CONFIG,
   });
 
-  return drizzle(client, { schema });
+  const db = drizzle(client, { schema });
+
+  // LOAD-BEARING, not redundant: drizzle's postgres-js driver deliberately
+  // overwrites the client's parsers/serializers for every temporal OID at
+  // construction time (node_modules/drizzle-orm/postgres-js/driver.js,
+  // `construct()`: it installs a transparent `(val) => val` parser for OIDs
+  // 1184, 1082, 1083, 1114, 1182, 1185, 1115, 1231) — which silently discards
+  // the TIMESTAMP_TYPE_CONFIG handed to postgres() above. The `types` option
+  // stays on the postgres() call because it is the correct declaration; this
+  // re-assertion after drizzle() is what actually survives and makes
+  // normalizeTemporalText run in production. Without it, every timestamptz
+  // reaches the app as "2026-07-29 15:34:18.209201+00" (non-ISO) instead of
+  // "2026-07-29T15:34:18.209201+00:00". Deleting this loop must turn
+  // lib/db/client.test.ts red.
+  for (const oid of TIMESTAMP_PARSER_IDS) {
+    client.options.parsers[oid] = normalizeTemporalText;
+  }
+
+  return db;
 }
 
 export type DrizzleDb = ReturnType<typeof buildDb>;

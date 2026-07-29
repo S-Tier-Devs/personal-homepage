@@ -1,16 +1,31 @@
 import { describe, expect, it, vi } from "vitest";
 
+type MockClient = {
+  options: {
+    parsers: Record<number, (value: string) => unknown>;
+    serializers: Record<number, unknown>;
+  };
+  end: ReturnType<typeof vi.fn>;
+};
+
 // vi.mock is hoisted above imports; postgresMock must be created via
 // vi.hoisted so the factory below can close over it without a TDZ error.
-const { postgresMock } = vi.hoisted(() => ({ postgresMock: vi.fn() }));
+const { postgresMock, clients } = vi.hoisted(() => ({
+  postgresMock: vi.fn(),
+  clients: [] as MockClient[],
+}));
 
 vi.mock("postgres", () => ({
   default: (...args: unknown[]) => {
     postgresMock(...args);
     // Minimal shape drizzle-orm's postgres-js driver touches at construction
-    // time (it patches client.options.parsers/serializers); no query is ever
-    // run against this mock.
-    return { options: { parsers: {}, serializers: {} }, end: vi.fn() };
+    // time (it patches client.options.parsers/serializers with transparent
+    // (val) => val functions — the exact behavior under test below); no query
+    // is ever run against this mock. Kept in `clients` so tests can inspect
+    // the parsers that survive construction.
+    const client: MockClient = { options: { parsers: {}, serializers: {} }, end: vi.fn() };
+    clients.push(client);
+    return client;
   },
 }));
 
@@ -77,20 +92,50 @@ describe("db client configuration", () => {
     });
   });
 
-  it("hands TIMESTAMP_TYPE_CONFIG to postgres() by reference — deleting or replacing `types` in buildDb() must fail this test", () => {
-    const previousUrl = process.env.DATABASE_URL;
-    process.env.DATABASE_URL = "postgresql://mock:mock@localhost:5432/mock";
-    postgresMock.mockClear();
+  describe("getDb() — effective driver configuration", () => {
+    /**
+     * Constructs the real handle once (getDb caches on globalThis; repeat
+     * calls are cache hits) and returns the postgres.js client it was built
+     * on. client.ts imports the REAL drizzle(), so this client has been
+     * through the driver's construct() step that overwrites temporal parsers.
+     */
+    function constructedClient(): MockClient {
+      const previousUrl = process.env.DATABASE_URL;
+      process.env.DATABASE_URL = "postgresql://mock:mock@localhost:5432/mock";
 
-    try {
-      getDb();
-    } finally {
-      process.env.DATABASE_URL = previousUrl;
+      try {
+        getDb();
+      } finally {
+        process.env.DATABASE_URL = previousUrl;
+      }
+
+      const client = clients[0];
+      expect(client).toBeDefined();
+      return client;
     }
 
-    expect(postgresMock).toHaveBeenCalledTimes(1);
-    const [, options] = postgresMock.mock.calls[0] as [string, { max: number; types: unknown }];
-    expect(options.types).toBe(TIMESTAMP_TYPE_CONFIG);
-    expect(options.max).toBe(POOL_MAX);
+    it("hands TIMESTAMP_TYPE_CONFIG and POOL_MAX to postgres()", () => {
+      constructedClient();
+
+      const [, options] = postgresMock.mock.calls[0] as [string, { max: number; types: unknown }];
+      expect(options.types).toBe(TIMESTAMP_TYPE_CONFIG);
+      expect(options.max).toBe(POOL_MAX);
+    });
+
+    it("keeps normalizeTemporalText as the EFFECTIVE parser for every temporal OID after drizzle() — drizzle's postgres-js driver overwrites these at construction, so deleting the re-assertion loop in buildDb() must fail this test", () => {
+      const client = constructedClient();
+
+      // The `types` option alone is NOT enough: drizzle-orm/postgres-js
+      // construct() replaces client.options.parsers[1184|1114|1082] with a
+      // transparent (val) => val. This asserts on what a query would actually
+      // run — the parser installed on the client — not on the option object
+      // handed to postgres(), which stayed green while production returned
+      // non-ISO timestamps.
+      for (const oid of TIMESTAMP_PARSER_IDS) {
+        const parser = client.options.parsers[oid];
+        expect(parser, `parser for OID ${oid}`).toBeTypeOf("function");
+        expect(parser("2026-07-29 13:26:14.684465+00")).toBe("2026-07-29T13:26:14.684465+00:00");
+      }
+    });
   });
 });
