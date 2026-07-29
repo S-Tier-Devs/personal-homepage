@@ -14,17 +14,17 @@ vi.mock("postgres", () => ({
   },
 }));
 
-const { POOL_MAX, TIMESTAMP_TYPE_CONFIG, TIMESTAMP_PARSER_IDS, parseTimestamptz, getDb } = await import(
-  "./client"
-);
+const {
+  POOL_MAX,
+  TIMESTAMP_TYPE_CONFIG,
+  TIMESTAMP_PARSER_IDS,
+  normalizeTemporalText,
+  getDb,
+} = await import("./client");
 
 describe("db client configuration", () => {
   it("caps the pool at 4 connections (basic-xxs app + shared 1GB cluster)", () => {
     expect(POOL_MAX).toBe(4);
-  });
-
-  it("passes timestamp text through verbatim", () => {
-    expect(parseTimestamptz("2026-07-29 12:00:00+00")).toBe("2026-07-29 12:00:00+00");
   });
 
   it("carries an entry for each of timestamptz (1184), timestamp (1114), and date (1082)", () => {
@@ -40,17 +40,41 @@ describe("db client configuration", () => {
     expect(TIMESTAMP_TYPE_CONFIG.date.from).toContain(1082);
   });
 
-  it("parses a representative value for each type as a verbatim string, not a Date", () => {
-    const tstz = TIMESTAMP_TYPE_CONFIG.timestamptz.parse("2026-07-29 12:00:00+00");
-    const ts = TIMESTAMP_TYPE_CONFIG.timestamp.parse("2026-07-29 12:00:00");
-    const date = TIMESTAMP_TYPE_CONFIG.date.parse("2026-07-29");
+  describe("normalizeTemporalText — postgres.js wire form -> ISO 8601 shape", () => {
+    it("expands a bare +00 offset and swaps the space for T, keeping microsecond precision", () => {
+      expect(normalizeTemporalText("2026-07-29 13:26:14.684465+00")).toBe(
+        "2026-07-29T13:26:14.684465+00:00"
+      );
+    });
 
-    expect(tstz).toBe("2026-07-29 12:00:00+00");
-    expect(ts).toBe("2026-07-29 12:00:00");
-    expect(date).toBe("2026-07-29");
-    expect(tstz).not.toBeInstanceOf(Date);
-    expect(ts).not.toBeInstanceOf(Date);
-    expect(date).not.toBeInstanceOf(Date);
+    it("expands a negative non-zero offset the same way", () => {
+      expect(normalizeTemporalText("2026-07-29 13:26:14.684465-05")).toBe(
+        "2026-07-29T13:26:14.684465-05:00"
+      );
+    });
+
+    it("leaves an offset that already carries minutes untouched", () => {
+      expect(normalizeTemporalText("2026-07-29 13:26:14.684465+05:30")).toBe(
+        "2026-07-29T13:26:14.684465+05:30"
+      );
+    });
+
+    it("swaps the space for T on a plain timestamp with no offset, and adds nothing", () => {
+      expect(normalizeTemporalText("2026-07-29 12:00:00")).toBe("2026-07-29T12:00:00");
+    });
+
+    it("leaves a bare date (no time component) unchanged", () => {
+      expect(normalizeTemporalText("2026-07-29")).toBe("2026-07-29");
+    });
+
+    it("produces a timestamptz string that Date can parse without NaN", () => {
+      const normalized = normalizeTemporalText("2026-07-29 13:26:14.684465+00");
+      expect(Number.isNaN(new Date(normalized).getTime())).toBe(false);
+    });
+
+    it("does not truncate microsecond precision", () => {
+      expect(normalizeTemporalText("2026-07-29 13:26:14.684465+00")).toContain(".684465");
+    });
   });
 
   it("hands TIMESTAMP_TYPE_CONFIG to postgres() by reference — deleting or replacing `types` in buildDb() must fail this test", () => {
