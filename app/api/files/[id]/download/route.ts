@@ -1,7 +1,9 @@
+import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
 import { apiError, isUuid } from "@/lib/dashboard/api";
+import { filesMetadata } from "@/lib/db/schema";
 
 /**
  * GET /api/files/[id]/download
@@ -20,7 +22,7 @@ export async function GET(
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { supabase, db } = authResult;
   const { id } = await params;
 
   if (!isUuid(id)) {
@@ -29,14 +31,22 @@ export async function GET(
 
   try {
     // Get file metadata
-    const { data: fileData, error: fileError } = await supabase
-      .from("files_metadata")
-      .select("id, storage_path, file_name")
-      .eq("id", id)
-      .maybeSingle();
+    let fileData: { id: string; storage_path: string; file_name: string } | undefined;
 
-    if (fileError) {
-      console.error("File lookup error:", fileError);
+    try {
+      const rows = await db
+        .select({
+          id: filesMetadata.id,
+          storage_path: filesMetadata.storage_path,
+          file_name: filesMetadata.file_name,
+        })
+        .from(filesMetadata)
+        .where(eq(filesMetadata.id, id))
+        .limit(1);
+
+      fileData = rows[0];
+    } catch (error) {
+      console.error("File lookup error:", error);
       return apiError("SERVER_ERROR", "Could not prepare the download.", 500);
     }
 
@@ -54,11 +64,17 @@ export async function GET(
       return apiError("STORAGE_ERROR", "Could not prepare the download.", 500);
     }
 
-    // Update last_downloaded_at
-    await supabase
-      .from("files_metadata")
-      .update({ last_downloaded_at: new Date().toISOString() })
-      .eq("id", id);
+    // Update last_downloaded_at. The Supabase-era call never checked this
+    // write's result either, so a failure here is swallowed the same way —
+    // it must not turn a successful signed URL into a 500.
+    try {
+      await db
+        .update(filesMetadata)
+        .set({ last_downloaded_at: new Date().toISOString() })
+        .where(eq(filesMetadata.id, id));
+    } catch (error) {
+      console.error("Last-downloaded update error:", error);
+    }
 
     return NextResponse.json(
       {

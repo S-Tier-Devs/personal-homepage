@@ -1,7 +1,9 @@
+import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
 import { apiError, isUuid, readJsonObject } from "@/lib/dashboard/api";
+import { filesMetadata } from "@/lib/db/schema";
 
 /**
  * PATCH /api/files/[id]
@@ -16,7 +18,7 @@ export async function PATCH(
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const { id } = await params;
 
   // A non-uuid id would make Postgres raise 22P02 and surface as a 500, when
@@ -52,24 +54,30 @@ export async function PATCH(
       return apiError("INVALID_BODY", "No fields to update.", 400);
     }
 
-    const { data, error } = await supabase
-      .from("files_metadata")
-      .update(updateData)
-      .eq("id", id)
-      .select("*")
-      .maybeSingle();
+    let file: Record<string, unknown> | undefined;
 
-    if (error) {
+    try {
+      // No explicit column list: the Supabase-era route selected "*" back on
+      // update, so `.returning()` (every column) keeps the response shape
+      // identical, unlike the deliberately narrow FILE_FIELDS in the list route.
+      const rows = await db
+        .update(filesMetadata)
+        .set(updateData)
+        .where(eq(filesMetadata.id, id))
+        .returning();
+
+      file = rows[0];
+    } catch (error) {
       console.error("File update error:", error);
       return apiError("SERVER_ERROR", "Could not update the document.", 500);
     }
 
-    if (!data) {
+    if (!file) {
       return apiError("NOT_FOUND", "No such document.", 404);
     }
 
     return NextResponse.json(
-      { message: "File updated successfully", file: data },
+      { message: "File updated successfully", file },
       { status: 200 }
     );
   } catch (error) {
@@ -91,7 +99,7 @@ export async function DELETE(
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { supabase, db } = authResult;
   const { id } = await params;
 
   if (!isUuid(id)) {
@@ -100,14 +108,18 @@ export async function DELETE(
 
   try {
     // Get file metadata
-    const { data: fileData, error: fileError } = await supabase
-      .from("files_metadata")
-      .select("id, storage_path")
-      .eq("id", id)
-      .maybeSingle();
+    let fileData: { id: string; storage_path: string } | undefined;
 
-    if (fileError) {
-      console.error("File lookup error:", fileError);
+    try {
+      const rows = await db
+        .select({ id: filesMetadata.id, storage_path: filesMetadata.storage_path })
+        .from(filesMetadata)
+        .where(eq(filesMetadata.id, id))
+        .limit(1);
+
+      fileData = rows[0];
+    } catch (error) {
+      console.error("File lookup error:", error);
       return apiError("SERVER_ERROR", "Could not delete the document.", 500);
     }
 
@@ -126,10 +138,10 @@ export async function DELETE(
     }
 
     // Delete metadata from database
-    const { error: dbError } = await supabase.from("files_metadata").delete().eq("id", id);
-
-    if (dbError) {
-      console.error("Database deletion error:", dbError);
+    try {
+      await db.delete(filesMetadata).where(eq(filesMetadata.id, id));
+    } catch (error) {
+      console.error("Database deletion error:", error);
       return apiError("SERVER_ERROR", "Could not delete the document.", 500);
     }
 

@@ -5,8 +5,7 @@ import GsdKeyCard from "@/components/dashboard/settings/gsd-key-card";
 import SettingsView from "@/components/dashboard/settings/settings-view";
 import type { Category, GsdKeyStatus } from "@/lib/dashboard/types";
 import { getDb } from "@/lib/db/client";
-import { dashboardCategories } from "@/lib/db/schema";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { dashboardCategories, gsdConfig } from "@/lib/db/schema";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -25,23 +24,27 @@ const CATEGORY_FIELDS = {
   sort_order: dashboardCategories.sort_order,
 };
 
+/** Status only — key_last4/updated_at. The api_key column is never read for display. */
+const KEY_STATUS_FIELDS = {
+  key_last4: gsdConfig.key_last4,
+  updated_at: gsdConfig.updated_at,
+};
+
 export default async function SettingsPage() {
   // The dashboard layout has already established that the caller is the admin.
-  // The GSD key card still reads through Supabase/RLS (Task 7's scope); the
-  // category list below reads through Drizzle.
   const db = getDb();
-  const supabase = await createServerSupabaseClient();
 
   // Unlike Links and Notes, this page never filters by workspace: the design
   // renders a Work card and a Home card side by side, so the whole table is the
   // payload rather than a per-workspace slice.
   //
-  // Both drizzle-orm's QueryPromise and postgrest-js's PostgrestBuilder are
-  // lazy thenables — nothing runs until `.then()`/`await`, so building the two
-  // query objects up front does not start them. `Promise.all` is what
-  // actually fires both in the same tick; a failed status read is non-fatal
-  // (the card starts as "not connected"), but a failed category read is
-  // fatal, so each result is still handled on its own terms below.
+  // drizzle-orm's QueryPromise is a lazy thenable — nothing runs until
+  // `.then()`/`await`, so building both query objects up front does not start
+  // them. `Promise.allSettled` is what actually fires both in the same tick
+  // *and* lets each be handled on its own terms: a failed key-status read is
+  // non-fatal (the card starts as "not connected"), but a failed category
+  // read is fatal, which a bare `Promise.all` could not distinguish once a
+  // Drizzle query throws instead of returning a Supabase-style `{ error }`.
   const categoriesPromise = db
     .select(CATEGORY_FIELDS)
     .from(dashboardCategories)
@@ -50,20 +53,15 @@ export default async function SettingsPage() {
       asc(dashboardCategories.kind),
       asc(dashboardCategories.sort_order)
     );
-  // Status only — key_last4/updated_at. The api_key column is never read
-  // for display anywhere in the app.
-  const keyResultPromise = supabase.from("gsd_config").select("key_last4, updated_at").maybeSingle();
+  const keyRowsPromise = db.select(KEY_STATUS_FIELDS).from(gsdConfig).limit(1);
 
-  let categories: Category[];
-  let keyResult: Awaited<typeof keyResultPromise>;
+  const [categoriesResult, keyRowsResult] = await Promise.allSettled([
+    categoriesPromise,
+    keyRowsPromise,
+  ]);
 
-  try {
-    const [categoryRows, keyRes] = await Promise.all([categoriesPromise, keyResultPromise]);
-
-    categories = categoryRows as Category[];
-    keyResult = keyRes;
-  } catch (error) {
-    console.error("Settings page load error:", error);
+  if (categoriesResult.status === "rejected") {
+    console.error("Settings page load error:", categoriesResult.reason);
 
     return (
       <section className="rounded-2xl border border-border bg-surface p-5 shadow">
@@ -76,14 +74,20 @@ export default async function SettingsPage() {
     );
   }
 
-  if (keyResult.error) {
-    console.error("Settings GSD key status error:", keyResult.error);
+  const categories = categoriesResult.value as Category[];
+
+  let keyRows: Awaited<typeof keyRowsPromise> = [];
+
+  if (keyRowsResult.status === "fulfilled") {
+    keyRows = keyRowsResult.value;
+  } else {
+    console.error("Settings GSD key status error:", keyRowsResult.reason);
   }
 
   const keyStatus: GsdKeyStatus = {
-    configured: !keyResult.error && keyResult.data !== null,
-    last4: keyResult.data?.key_last4 ?? null,
-    updated_at: keyResult.data?.updated_at ?? null,
+    configured: keyRows.length > 0,
+    last4: keyRows[0]?.key_last4 ?? null,
+    updated_at: keyRows[0]?.updated_at ?? null,
   };
 
   return (

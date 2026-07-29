@@ -1,8 +1,10 @@
+import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, readJsonObject } from "@/lib/dashboard/api";
+import { apiError, postgresErrorCode, readJsonObject } from "@/lib/dashboard/api";
 import type { GsdKeyStatus } from "@/lib/dashboard/types";
+import { gsdConfig } from "@/lib/db/schema";
 import { testGsdKey } from "@/lib/gsd/client";
 
 /**
@@ -15,6 +17,11 @@ import { testGsdKey } from "@/lib/gsd/client";
 /** Sanity cap; real GSD keys are far shorter. Verification is the true gate. */
 const GSD_KEY_MAX_LENGTH = 200;
 
+/** Only the SQLSTATE and message — never a raw error object that could carry the key. */
+function logKeyError(label: string, error: unknown) {
+  console.error(label, postgresErrorCode(error), error instanceof Error ? error.message : String(error));
+}
+
 /**
  * GET /api/gsd-key
  * Status only. `configured` is row-existence; the key column is not read.
@@ -25,22 +32,26 @@ export async function GET(request: NextRequest) {
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
 
-  const { data, error } = await supabase
-    .from("gsd_config")
-    .select("key_last4, updated_at")
-    .maybeSingle();
+  let row: { key_last4: string; updated_at: string } | undefined;
 
-  if (error) {
-    console.error("GSD key status read error:", error.code, error.message);
+  try {
+    const rows = await db
+      .select({ key_last4: gsdConfig.key_last4, updated_at: gsdConfig.updated_at })
+      .from(gsdConfig)
+      .limit(1);
+
+    row = rows[0];
+  } catch (error) {
+    logKeyError("GSD key status read error:", error);
     return apiError("SERVER_ERROR", "Could not read the key status.", 500);
   }
 
   const status: GsdKeyStatus = {
-    configured: data !== null,
-    last4: data?.key_last4 ?? null,
-    updated_at: data?.updated_at ?? null,
+    configured: row !== undefined,
+    last4: row?.key_last4 ?? null,
+    updated_at: row?.updated_at ?? null,
   };
 
   return NextResponse.json(status, { status: 200 });
@@ -58,7 +69,7 @@ export async function PUT(request: NextRequest) {
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const body = await readJsonObject(request);
 
   if (!body) {
@@ -106,29 +117,41 @@ export async function PUT(request: NextRequest) {
     );
   }
 
-  const { data, error } = await supabase
-    .from("gsd_config")
-    .upsert({
-      id: 1,
-      api_key: candidate,
-      key_last4: candidate.slice(-4),
-      updated_at: new Date().toISOString(),
-    })
-    .select("key_last4, updated_at")
-    .single();
+  try {
+    const [row] = await db
+      .insert(gsdConfig)
+      .values({
+        id: 1,
+        api_key: candidate,
+        key_last4: candidate.slice(-4),
+        updated_at: new Date().toISOString(),
+      })
+      .onConflictDoUpdate({
+        target: gsdConfig.id,
+        set: {
+          api_key: candidate,
+          key_last4: candidate.slice(-4),
+          updated_at: new Date().toISOString(),
+        },
+      })
+      .returning({ key_last4: gsdConfig.key_last4, updated_at: gsdConfig.updated_at });
 
-  if (error || !data) {
-    console.error("GSD key save error:", error?.code, error?.message);
+    if (!row) {
+      logKeyError("GSD key save error:", new Error("upsert returned no row"));
+      return apiError("SERVER_ERROR", "The key verified but could not be saved.", 500);
+    }
+
+    const status: GsdKeyStatus = {
+      configured: true,
+      last4: row.key_last4,
+      updated_at: row.updated_at,
+    };
+
+    return NextResponse.json(status, { status: 200 });
+  } catch (error) {
+    logKeyError("GSD key save error:", error);
     return apiError("SERVER_ERROR", "The key verified but could not be saved.", 500);
   }
-
-  const status: GsdKeyStatus = {
-    configured: true,
-    last4: data.key_last4,
-    updated_at: data.updated_at,
-  };
-
-  return NextResponse.json(status, { status: 200 });
 }
 
 /**
@@ -141,12 +164,12 @@ export async function DELETE(request: NextRequest) {
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
 
-  const { error } = await supabase.from("gsd_config").delete().eq("id", 1);
-
-  if (error) {
-    console.error("GSD key delete error:", error.code, error.message);
+  try {
+    await db.delete(gsdConfig).where(eq(gsdConfig.id, 1));
+  } catch (error) {
+    logKeyError("GSD key delete error:", error);
     return apiError("SERVER_ERROR", "Could not remove the key.", 500);
   }
 
