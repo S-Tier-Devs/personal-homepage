@@ -7,7 +7,9 @@ import { apiError, isUuid } from "@/lib/dashboard/api";
  * GET /api/files/[id]/download
  *
  * Returns a 1-hour signed storage URL as JSON — it does not redirect, so the
- * caller is expected to fetch the URL itself.
+ * caller is expected to fetch the URL itself. The URL is created with a forced
+ * download disposition, so browsers save the file rather than render it — this
+ * is what makes accepting arbitrary file types safe.
  */
 export async function GET(
   request: NextRequest,
@@ -45,7 +47,7 @@ export async function GET(
     // Generate signed URL (valid for 1 hour)
     const { data, error: urlError } = await supabase.storage
       .from("files")
-      .createSignedUrl(fileData.storage_path, 3600);
+      .createSignedUrl(fileData.storage_path, 3600, { download: fileData.file_name });
 
     if (urlError || !data) {
       console.error("Signed URL generation error:", urlError);
