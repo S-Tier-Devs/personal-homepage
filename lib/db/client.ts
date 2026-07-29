@@ -11,12 +11,36 @@ import * as schema from "./schema";
  */
 export const POOL_MAX = 4;
 
-/** postgres.js type OIDs overridden to return strings: timestamptz, timestamp, date. */
-export const TIMESTAMP_PARSER_IDS = [1184, 1114, 1082] as const;
-
 export function parseTimestamptz(value: string): string {
   return value;
 }
+
+/**
+ * postgres.js type parser overrides that make timestamptz/timestamp/date
+ * columns come back as ISO strings, not Date objects. PostgREST served these
+ * as strings; the wire format and every formatDate call site depend on that
+ * contract holding (plan Global Constraints). mode:"string" on the Drizzle
+ * columns handles typing; this config handles the runtime values.
+ *
+ * Exported — and passed to postgres() by reference, not re-literaled — so
+ * client.test.ts can assert against the exact object the driver receives.
+ * A standalone constant tested in isolation would stay green even if this
+ * config were deleted from the real postgres() call; this doesn't.
+ */
+export const TIMESTAMP_TYPE_CONFIG = {
+  // `from` must stay a mutable number[] — the `postgres` package's
+  // PostgresType interface requires it, so this object can't be `as const`.
+  timestamptz: { to: 1184, from: [1184], serialize: (v: string) => v, parse: parseTimestamptz },
+  timestamp: { to: 1114, from: [1114], serialize: (v: string) => v, parse: parseTimestamptz },
+  date: { to: 1082, from: [1082], serialize: (v: string) => v, parse: parseTimestamptz },
+};
+
+/**
+ * OIDs covered by TIMESTAMP_TYPE_CONFIG, derived rather than hand-maintained
+ * as a second list — two lists that must be kept in sync is exactly the kind
+ * of drift this config exists to prevent.
+ */
+export const TIMESTAMP_PARSER_IDS = Object.values(TIMESTAMP_TYPE_CONFIG).map((entry) => entry.to);
 
 function buildDb() {
   const url = process.env.DATABASE_URL;
@@ -27,15 +51,7 @@ function buildDb() {
 
   const client = postgres(url, {
     max: POOL_MAX,
-    // PostgREST served timestamps as ISO strings; keep that contract so the
-    // wire format and formatDate call sites are unchanged (plan Global
-    // Constraints). mode:"string" on the Drizzle columns handles typing;
-    // these parsers handle the runtime values.
-    types: {
-      timestamptz: { to: 1184, from: [1184], serialize: (v: string) => v, parse: parseTimestamptz },
-      timestamp: { to: 1114, from: [1114], serialize: (v: string) => v, parse: parseTimestamptz },
-      date: { to: 1082, from: [1082], serialize: (v: string) => v, parse: parseTimestamptz },
-    },
+    types: TIMESTAMP_TYPE_CONFIG,
   });
 
   return drizzle(client, { schema });
