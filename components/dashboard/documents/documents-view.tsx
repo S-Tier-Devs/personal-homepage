@@ -5,8 +5,6 @@ import { useMemo, useRef, useState } from "react";
 import { DocIcon, DownloadIcon, TrashIcon } from "@/components/dashboard/icons";
 import { useToast } from "@/components/dashboard/toast";
 import {
-  ALLOWED_EXTENSIONS,
-  ALLOWED_MIMETYPES,
   MAX_FILE_SIZE_BYTES,
   MAX_FILE_SIZE_LABEL,
   extensionBadge,
@@ -85,21 +83,11 @@ function toDocumentItem(value: unknown): DocumentItem | null {
 }
 
 /**
- * Mirrors the upload route's three checks so a doomed file is rejected before
- * 10MB go over the wire. Returns the reason, or null when the file is fine.
- * The server re-checks all of this regardless.
+ * Mirrors the upload route's size check so a doomed file is rejected before
+ * 50MB go over the wire. Returns the reason, or null when the file is fine.
+ * The server re-checks this regardless.
  */
 function rejectionReason(file: File): string | null {
-  const extension = fileExtension(file.name);
-
-  if (!ALLOWED_EXTENSIONS.includes(extension)) {
-    return `${file.name} is not an accepted file type (${ALLOWED_EXTENSIONS.join(", ")}).`;
-  }
-
-  if (!ALLOWED_MIMETYPES.includes(file.type)) {
-    return `${file.name} was reported by the browser as "${file.type || "unknown"}", which is not accepted.`;
-  }
-
   if (file.size > MAX_FILE_SIZE_BYTES) {
     return `${file.name} is larger than ${MAX_FILE_SIZE_LABEL}.`;
   }
@@ -371,7 +359,6 @@ export default function DocumentsView({
           ref={fileInputRef}
           type="file"
           multiple
-          accept={ALLOWED_EXTENSIONS.join(",")}
           aria-label="Choose documents to upload"
           onChange={(event) => {
             void ingest(event.target.files);
@@ -400,7 +387,7 @@ export default function DocumentsView({
         >
           browse
         </button>{" "}
-        — {ALLOWED_EXTENSIONS.join(", ")}, up to {MAX_FILE_SIZE_LABEL} each.
+        — any file up to {MAX_FILE_SIZE_LABEL} each.
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">

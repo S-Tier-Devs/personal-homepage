@@ -1,36 +1,18 @@
 /**
  * Shared constraints and formatting for the Documents section.
  *
- * The upload constraints live here rather than inside the upload route so the
- * client view can mirror them and fail fast with a useful message. The mirror
- * is a courtesy only — `app/api/files/upload/route.ts` re-checks every one of
- * them, and that server check is the actual boundary.
+ * The only upload constraint is size — any file type is accepted; extension
+ * and MIME type are recorded as display metadata, never validated. The size
+ * limit lives here rather than inside the upload route so the client view can
+ * mirror it and fail fast with a useful message. The mirror is a courtesy
+ * only — `app/api/files/upload/route.ts` re-checks it, and that server check
+ * (plus the storage bucket's file_size_limit backstop) is the actual boundary.
  *
  * Deliberately free of `next/server` imports so a `"use client"` component can
  * pull from the same source as the route handler.
  */
 
-/** Extensions the upload route accepts, lower-cased and dot-prefixed. */
-export const ALLOWED_EXTENSIONS: readonly string[] = [
-  ".pdf",
-  ".docx",
-  ".txt",
-  ".md",
-  ".sql",
-  ".py",
-];
-
-/** MIME types the upload route accepts, checked against the browser's `File.type`. */
-export const ALLOWED_MIMETYPES: readonly string[] = [
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "text/plain",
-  "text/markdown",
-  "application/x-sql",
-  "text/x-python",
-];
-
-export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 
 /** Human form of `MAX_FILE_SIZE_BYTES`, for error copy and the drop-zone hint. */
 export const MAX_FILE_SIZE_LABEL = `${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB`;
