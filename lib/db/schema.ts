@@ -3,11 +3,13 @@ import {
   boolean,
   bigint,
   check,
+  index,
   integer,
   pgTable,
   smallint,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -38,6 +40,12 @@ export const dashboardCategories = pgTable(
   (t) => [
     check("dashboard_categories_ctx_check", sql`${t.ctx} in ('work', 'home')`),
     check("dashboard_categories_kind_check", sql`${t.kind} in ('link', 'note')`),
+    // Concurrency backstop the category routes' 23505 → 409 net depends on
+    // (lib/dashboard/api.ts UNIQUE_VIOLATION). Carried verbatim from Supabase:
+    // UNIQUE (ctx, kind, name), constraint dashboard_categories_ctx_kind_name_key.
+    unique("dashboard_categories_ctx_kind_name_key").on(t.ctx, t.kind, t.name),
+    // btree (ctx, kind, sort_order), carried verbatim from Supabase.
+    index("dashboard_categories_ctx_kind_sort_idx").on(t.ctx, t.kind, t.sort_order),
   ]
 );
 
@@ -64,7 +72,16 @@ export const dashboardLinks = pgTable(
       .default(utcNow)
       .$onUpdate(() => sql`timezone('utc'::text, now())`),
   },
-  (t) => [check("dashboard_links_ctx_check", sql`${t.ctx} in ('work', 'home')`)]
+  (t) => [
+    check("dashboard_links_ctx_check", sql`${t.ctx} in ('work', 'home')`),
+    // All four secondary indexes carried verbatim from Supabase.
+    index("dashboard_links_ctx_category_idx").on(t.ctx, t.category_id),
+    // .nullsFirst() is Postgres's own default for DESC — spelled out because
+    // drizzle-kit otherwise emits NULLS LAST, diverging from the Supabase def.
+    index("dashboard_links_ctx_clicks_idx").on(t.ctx, t.click_count.desc().nullsFirst()),
+    index("dashboard_links_ctx_pinned_sort_idx").on(t.ctx, t.pinned, t.sort_order),
+    index("dashboard_links_ctx_sort_idx").on(t.ctx, t.sort_order),
+  ]
 );
 
 export const dashboardNotes = pgTable(
@@ -85,7 +102,12 @@ export const dashboardNotes = pgTable(
       .default(utcNow)
       .$onUpdate(() => sql`timezone('utc'::text, now())`),
   },
-  (t) => [check("dashboard_notes_ctx_check", sql`${t.ctx} in ('work', 'home')`)]
+  (t) => [
+    check("dashboard_notes_ctx_check", sql`${t.ctx} in ('work', 'home')`),
+    // btree (ctx, updated_at DESC), carried verbatim from Supabase.
+    // .nullsFirst() = Postgres's DESC default; see dashboard_links_ctx_clicks_idx.
+    index("dashboard_notes_ctx_updated_idx").on(t.ctx, t.updated_at.desc().nullsFirst()),
+  ]
 );
 
 export const filesMetadata = pgTable(
@@ -111,7 +133,12 @@ export const filesMetadata = pgTable(
       .default(utcNow)
       .$onUpdate(() => sql`timezone('utc'::text, now())`),
   },
-  (t) => [check("files_metadata_visibility_check", sql`${t.visibility} in ('private', 'public')`)]
+  (t) => [
+    check("files_metadata_visibility_check", sql`${t.visibility} in ('private', 'public')`),
+    // btree (visibility, created_at DESC), carried verbatim from Supabase.
+    // .nullsFirst() = Postgres's DESC default; see dashboard_links_ctx_clicks_idx.
+    index("files_metadata_visibility_idx").on(t.visibility, t.created_at.desc().nullsFirst()),
+  ]
 );
 
 export const gsdConfig = pgTable(
@@ -148,5 +175,8 @@ export const contactSubmissions = pgTable(
       "contact_submissions_status_check",
       sql`${t.status} in ('unread', 'in_progress', 'resolved', 'archived')`
     ),
+    // btree (status, created_at DESC), carried verbatim from Supabase.
+    // .nullsFirst() = Postgres's DESC default; see dashboard_links_ctx_clicks_idx.
+    index("contact_submissions_status_idx").on(t.status, t.created_at.desc().nullsFirst()),
   ]
 );
