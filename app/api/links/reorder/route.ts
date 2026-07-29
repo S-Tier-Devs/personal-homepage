@@ -1,8 +1,10 @@
+import { asc, eq, inArray } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { LINK_COLUMNS, apiError, isUuid, readJsonObject } from "@/lib/dashboard/api";
+import { apiError, isUuid, readJsonObject } from "@/lib/dashboard/api";
 import type { LinkItem } from "@/lib/dashboard/types";
+import { dashboardLinks } from "@/lib/db/schema";
 
 /**
  * A drop rewrites every position in the affected list, so the cap is a sanity
@@ -26,7 +28,7 @@ export async function PATCH(request: NextRequest) {
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const body = await readJsonObject(request);
 
   if (!body) {
@@ -75,19 +77,19 @@ export async function PATCH(request: NextRequest) {
   const ids = [...positions.keys()];
 
   // Read first, for two reasons: it confirms every id is a row this caller can
-  // see (RLS already restricts the read), and it gives us the ctx to scope the
-  // response to without trusting a client-supplied workspace.
-  const { data: existing, error: readError } = await supabase
-    .from("dashboard_links")
-    .select(LINK_COLUMNS)
-    .in("id", ids);
+  // see, and it gives us the ctx to scope the response to without trusting a
+  // client-supplied workspace.
+  let rows: LinkItem[];
 
-  if (readError) {
-    console.error("Link reorder read error:", readError);
+  try {
+    // Drizzle types `ctx` as plain `text`, wider than `LinkItem`'s `Ctx` union;
+    // the check constraint guarantees the narrower type at runtime, same cast
+    // used for the category twins in lib/dashboard/api.ts.
+    rows = (await db.select().from(dashboardLinks).where(inArray(dashboardLinks.id, ids))) as LinkItem[];
+  } catch (error) {
+    console.error("Link reorder read error:", error);
     return apiError("SERVER_ERROR", "Could not load the links.", 500);
   }
-
-  const rows: LinkItem[] = existing ?? [];
 
   if (rows.length !== ids.length) {
     return apiError("NOT_FOUND", "One or more links no longer exist.", 404);
@@ -113,12 +115,9 @@ export async function PATCH(request: NextRequest) {
       continue;
     }
 
-    const { error: updateError } = await supabase
-      .from("dashboard_links")
-      .update({ sort_order: sortOrder })
-      .eq("id", row.id);
-
-    if (updateError) {
+    try {
+      await db.update(dashboardLinks).set({ sort_order: sortOrder }).where(eq(dashboardLinks.id, row.id));
+    } catch (error) {
       // Honest limitation: these per-row updates are NOT wrapped in a single
       // transaction, so a failure here can leave the list half-renumbered —
       // the rows before this one are already updated, the rest are not, and
@@ -128,23 +127,21 @@ export async function PATCH(request: NextRequest) {
       // is capped at MAX_REORDER_ROWS, so the blast radius is bounded. Making
       // the batch atomic needs a Postgres function (a single UPDATE ... FROM
       // over the batch); deferred as an owner decision rather than assumed.
-      console.error("Link reorder write error:", updateError);
+      console.error("Link reorder write error:", error);
       return apiError("SERVER_ERROR", "Could not save the new order.", 500);
     }
   }
 
-  const { data: refreshed, error: refreshError } = await supabase
-    .from("dashboard_links")
-    .select(LINK_COLUMNS)
-    .eq("ctx", ctx)
-    .order("sort_order", { ascending: true });
+  try {
+    const links = (await db
+      .select()
+      .from(dashboardLinks)
+      .where(eq(dashboardLinks.ctx, ctx))
+      .orderBy(asc(dashboardLinks.sort_order))) as LinkItem[];
 
-  if (refreshError) {
-    console.error("Link reorder reload error:", refreshError);
+    return NextResponse.json({ links }, { status: 200 });
+  } catch (error) {
+    console.error("Link reorder reload error:", error);
     return apiError("SERVER_ERROR", "Could not reload the links.", 500);
   }
-
-  const links: LinkItem[] = refreshed ?? [];
-
-  return NextResponse.json({ links }, { status: 200 });
 }

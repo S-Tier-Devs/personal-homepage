@@ -1,15 +1,10 @@
+import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import {
-  LINK_COLUMNS,
-  apiError,
-  findMatchingCategory,
-  isUuid,
-  normalizeUrl,
-  readJsonObject,
-} from "@/lib/dashboard/api";
+import { apiError, findMatchingCategoryDb, isUuid, normalizeUrl, readJsonObject } from "@/lib/dashboard/api";
 import { isCtx, type Ctx, type LinkItem } from "@/lib/dashboard/types";
+import { dashboardLinks } from "@/lib/db/schema";
 
 /** Only the columns PATCH is allowed to write; every key is optional. */
 interface LinkUpdate {
@@ -39,7 +34,7 @@ export async function PATCH(
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const { id } = await params;
 
   if (!isUuid(id)) {
@@ -52,14 +47,21 @@ export async function PATCH(
     return apiError("INVALID_BODY", "Request body must be a JSON object.", 400);
   }
 
-  const { data: existing, error: readError } = await supabase
-    .from("dashboard_links")
-    .select(LINK_COLUMNS)
-    .eq("id", id)
-    .maybeSingle();
+  let existing: LinkItem | undefined;
 
-  if (readError) {
-    console.error("Link read error:", readError);
+  try {
+    // Drizzle types `ctx` as plain `text`, wider than `LinkItem`'s `Ctx` union;
+    // the check constraint guarantees the narrower type at runtime, same cast
+    // used for the category twins in lib/dashboard/api.ts.
+    const rows = (await db
+      .select()
+      .from(dashboardLinks)
+      .where(eq(dashboardLinks.id, id))
+      .limit(1)) as LinkItem[];
+
+    existing = rows[0];
+  } catch (error) {
+    console.error("Link read error:", error);
     return apiError("SERVER_ERROR", "Could not load the link.", 500);
   }
 
@@ -133,7 +135,7 @@ export async function PATCH(
   if (updates.ctx !== undefined || updates.category_id !== undefined) {
     const effectiveCtx = updates.ctx ?? current.ctx;
     const effectiveCategoryId = updates.category_id ?? current.category_id;
-    const category = await findMatchingCategory(supabase, effectiveCategoryId, effectiveCtx, "link");
+    const category = await findMatchingCategoryDb(db, effectiveCategoryId, effectiveCtx, "link");
 
     if (!category) {
       return apiError(
@@ -144,25 +146,22 @@ export async function PATCH(
     }
   }
 
-  const { data, error } = await supabase
-    .from("dashboard_links")
-    .update(updates)
-    .eq("id", id)
-    .select(LINK_COLUMNS)
-    .maybeSingle();
+  try {
+    const [link] = (await db
+      .update(dashboardLinks)
+      .set(updates)
+      .where(eq(dashboardLinks.id, id))
+      .returning()) as LinkItem[];
 
-  if (error) {
+    if (!link) {
+      return apiError("NOT_FOUND", "No link with that id.", 404);
+    }
+
+    return NextResponse.json(link, { status: 200 });
+  } catch (error) {
     console.error("Link update error:", error);
     return apiError("SERVER_ERROR", "Could not update the link.", 500);
   }
-
-  if (!data) {
-    return apiError("NOT_FOUND", "No link with that id.", 404);
-  }
-
-  const link: LinkItem = data;
-
-  return NextResponse.json(link, { status: 200 });
 }
 
 /**
@@ -179,28 +178,26 @@ export async function DELETE(
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const { id } = await params;
 
   if (!isUuid(id)) {
     return apiError("NOT_FOUND", "No link with that id.", 404);
   }
 
-  const { data, error } = await supabase
-    .from("dashboard_links")
-    .delete()
-    .eq("id", id)
-    .select("id")
-    .maybeSingle();
+  try {
+    const deleted = await db
+      .delete(dashboardLinks)
+      .where(eq(dashboardLinks.id, id))
+      .returning({ id: dashboardLinks.id });
 
-  if (error) {
+    if (deleted.length === 0) {
+      return apiError("NOT_FOUND", "No link with that id.", 404);
+    }
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (error) {
     console.error("Link delete error:", error);
     return apiError("SERVER_ERROR", "Could not delete the link.", 500);
   }
-
-  if (!data) {
-    return apiError("NOT_FOUND", "No link with that id.", 404);
-  }
-
-  return NextResponse.json({ ok: true }, { status: 200 });
 }
