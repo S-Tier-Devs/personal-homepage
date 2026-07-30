@@ -1,6 +1,8 @@
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
-import type { createServerSupabaseClient } from "@/lib/supabase/server";
+import type { DrizzleDb } from "@/lib/db/client";
+import { dashboardCategories } from "@/lib/db/schema";
 import type { Category, CategoryKind, Ctx } from "@/lib/dashboard/types";
 
 /**
@@ -40,16 +42,6 @@ export function apiError(error: ApiErrorCode, message: string, status: number) {
   return NextResponse.json({ error, message }, { status });
 }
 
-/** The client returned by `requireAdminAuth` — already scoped to the caller's session. */
-export type DashboardSupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
-
-export const LINK_COLUMNS =
-  "id, ctx, category_id, title, url, description, sort_order, pinned, created_at, updated_at, click_count, last_clicked_at";
-
-export const NOTE_COLUMNS = "id, ctx, category_id, title, content_html, created_at, updated_at";
-
-export const CATEGORY_COLUMNS = "id, ctx, kind, name, sort_order";
-
 /**
  * Category names are chips in a fixed-width card, and the column is unbounded
  * `text`. The cap is presentational rather than a data constraint, so it lives
@@ -69,8 +61,8 @@ export const CATEGORY_NAME_MAX_LENGTH = 40;
 export const UNIQUE_VIOLATION = "23505";
 export const FOREIGN_KEY_VIOLATION = "23503";
 
-/** Reads the SQLSTATE off a PostgREST error without asserting its whole shape. */
-export function postgresErrorCode(error: unknown): string | null {
+/** Reads a string `code` property off an unknown value, or null. */
+function readSqlstate(error: unknown): string | null {
   if (typeof error !== "object" || error === null) {
     return null;
   }
@@ -78,6 +70,57 @@ export function postgresErrorCode(error: unknown): string | null {
   const { code } = error as { code?: unknown };
 
   return typeof code === "string" ? code : null;
+}
+
+/**
+ * Reads the SQLSTATE off a PostgREST, postgres.js, *or drizzle-wrapped* error
+ * without asserting its whole shape.
+ *
+ * drizzle-orm wraps every query failure in a `DrizzleQueryError` that carries
+ * no `code` of its own — the postgres.js `PostgresError` (which has the
+ * string SQLSTATE `code`) rides on the wrapper's `cause`. Without the one
+ * level of unwrapping below, this returned null for every Drizzle error and
+ * the 23505/23503 → 409 nets in the category routes could never fire.
+ * Shape-checked rather than `instanceof` drizzle internals on purpose; one
+ * level is all drizzle ever adds.
+ */
+export function postgresErrorCode(error: unknown): string | null {
+  const direct = readSqlstate(error);
+
+  if (direct !== null) {
+    return direct;
+  }
+
+  if (typeof error === "object" && error !== null) {
+    return readSqlstate((error as { cause?: unknown }).cause);
+  }
+
+  return null;
+}
+
+/**
+ * Logs a caught query failure's SQLSTATE and cause message only — never the
+ * error object and never a `DrizzleQueryError`'s own `message`, which embeds
+ * the literal query *parameter values*
+ * (`node_modules/drizzle-orm/errors.js`: `Failed query: ...\nparams: ...`).
+ * PostgREST never did this, so this is the one path every route's `catch`
+ * must go through instead of `console.error(label, error)` — a personal
+ * dashboard's Notes/Links write params are arbitrary free text and URLs, both
+ * plausible homes for a pasted secret or token.
+ *
+ * `cause` is postgres.js's `PostgresError` when the query reached Postgres —
+ * its `message` carries no parameter values. For an error with no `cause`
+ * (a plain `Error` a route constructs itself, e.g. "upsert returned no row"),
+ * the error's own message is safe to log and is used instead.
+ */
+export function logQueryError(label: string, error: unknown): void {
+  const cause = error instanceof Error && error.cause !== undefined ? error.cause : error;
+
+  console.error(
+    label,
+    postgresErrorCode(error),
+    cause instanceof Error ? cause.message : String(cause)
+  );
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -178,22 +221,25 @@ export function normalizeCategoryName(raw: unknown): string | null {
  * from a broken query rather than inventing `sort_order` 0 on an error.
  */
 export async function listCategorySiblings(
-  supabase: DashboardSupabaseClient,
+  db: DrizzleDb,
   ctx: Ctx,
   kind: CategoryKind
 ): Promise<Category[] | null> {
-  const { data, error } = await supabase
-    .from("dashboard_categories")
-    .select(CATEGORY_COLUMNS)
-    .eq("ctx", ctx)
-    .eq("kind", kind);
+  try {
+    // Drizzle types `ctx`/`kind` as plain `text` columns (drizzle-kit doesn't
+    // model the check constraints as enums), so the row type is wider than
+    // `Category`. The database's check constraints guarantee the narrower
+    // union at runtime.
+    const rows = await db
+      .select()
+      .from(dashboardCategories)
+      .where(and(eq(dashboardCategories.ctx, ctx), eq(dashboardCategories.kind, kind)));
 
-  if (error) {
-    console.error("Category siblings read error:", error);
+    return rows as Category[];
+  } catch (error) {
+    logQueryError("Category siblings read error:", error);
     return null;
   }
-
-  return (data ?? []) as Category[];
 }
 
 /**
@@ -202,7 +248,7 @@ export async function listCategorySiblings(
  * filtering, so the API — not the database — owns keeping the two in step.
  */
 export async function findMatchingCategory(
-  supabase: DashboardSupabaseClient,
+  db: DrizzleDb,
   categoryId: string,
   ctx: Ctx,
   kind: CategoryKind
@@ -211,17 +257,21 @@ export async function findMatchingCategory(
     return null;
   }
 
-  const { data, error } = await supabase
-    .from("dashboard_categories")
-    .select(CATEGORY_COLUMNS)
-    .eq("id", categoryId)
-    .maybeSingle();
+  try {
+    const rows = await db
+      .select()
+      .from(dashboardCategories)
+      .where(eq(dashboardCategories.id, categoryId))
+      .limit(1);
 
-  if (error || !data) {
+    const category = rows[0];
+
+    if (!category) {
+      return null;
+    }
+
+    return category.ctx === ctx && category.kind === kind ? (category as Category) : null;
+  } catch {
     return null;
   }
-
-  const category = data as Category;
-
-  return category.ctx === ctx && category.kind === kind ? category : null;
 }

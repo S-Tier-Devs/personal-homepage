@@ -1,14 +1,16 @@
+import { desc, eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
 import {
-  LINK_COLUMNS,
   apiError,
   findMatchingCategory,
+  logQueryError,
   normalizeUrl,
   readJsonObject,
 } from "@/lib/dashboard/api";
 import { isCtx, type LinkItem } from "@/lib/dashboard/types";
+import { dashboardLinks } from "@/lib/db/schema";
 
 /**
  * GET /api/links
@@ -24,32 +26,29 @@ export async function GET(request: NextRequest) {
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const ctxParam = request.nextUrl.searchParams.get("ctx");
 
   if (ctxParam !== null && !isCtx(ctxParam)) {
     return apiError("INVALID_CTX", "ctx must be either \"work\" or \"home\".", 400);
   }
 
-  let query = supabase
-    .from("dashboard_links")
-    .select(LINK_COLUMNS)
-    .order("created_at", { ascending: false });
+  try {
+    // Drizzle types `ctx` as plain `text` (drizzle-kit doesn't model the check
+    // constraint as an enum), so the row type is wider than `LinkItem`. The
+    // database's check constraint guarantees the narrower union at runtime,
+    // same cast used for the category twins in lib/dashboard/api.ts.
+    const links = (await db
+      .select()
+      .from(dashboardLinks)
+      .where(ctxParam !== null ? eq(dashboardLinks.ctx, ctxParam) : undefined)
+      .orderBy(desc(dashboardLinks.created_at))) as LinkItem[];
 
-  if (ctxParam !== null) {
-    query = query.eq("ctx", ctxParam);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("Links list error:", error);
+    return NextResponse.json({ links }, { status: 200 });
+  } catch (error) {
+    logQueryError("Links list error:", error);
     return apiError("SERVER_ERROR", "Could not load links.", 500);
   }
-
-  const links: LinkItem[] = data ?? [];
-
-  return NextResponse.json({ links }, { status: 200 });
 }
 
 /**
@@ -64,7 +63,7 @@ export async function POST(request: NextRequest) {
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const body = await readJsonObject(request);
 
   if (!body) {
@@ -99,7 +98,7 @@ export async function POST(request: NextRequest) {
     return apiError("INVALID_BODY", "description must be a string.", 400);
   }
 
-  const category = await findMatchingCategory(supabase, categoryId, ctx, "link");
+  const category = await findMatchingCategory(db, categoryId, ctx, "link");
 
   if (!category) {
     return apiError(
@@ -109,24 +108,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { data, error } = await supabase
-    .from("dashboard_links")
-    .insert({
-      ctx,
-      category_id: categoryId,
-      title: title.trim(),
-      url: normalizedUrl,
-      description: typeof description === "string" ? description.trim() || null : null,
-    })
-    .select(LINK_COLUMNS)
-    .single();
+  try {
+    const [link] = (await db
+      .insert(dashboardLinks)
+      .values({
+        ctx,
+        category_id: categoryId,
+        title: title.trim(),
+        url: normalizedUrl,
+        description: typeof description === "string" ? description.trim() || null : null,
+      })
+      .returning()) as LinkItem[];
 
-  if (error || !data) {
-    console.error("Link create error:", error);
+    return NextResponse.json(link, { status: 201 });
+  } catch (error) {
+    logQueryError("Link create error:", error);
     return apiError("SERVER_ERROR", "Could not save the link.", 500);
   }
-
-  const link: LinkItem = data;
-
-  return NextResponse.json(link, { status: 201 });
 }

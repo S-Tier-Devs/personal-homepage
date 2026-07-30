@@ -1,13 +1,10 @@
+import { desc, eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import {
-  NOTE_COLUMNS,
-  apiError,
-  findMatchingCategory,
-  readJsonObject,
-} from "@/lib/dashboard/api";
+import { apiError, findMatchingCategory, logQueryError, readJsonObject } from "@/lib/dashboard/api";
 import { isCtx, type NoteItem } from "@/lib/dashboard/types";
+import { dashboardNotes } from "@/lib/db/schema";
 import {
   NOTE_CONTENT_MAX_LENGTH,
   NOTE_TITLE_MAX_LENGTH,
@@ -30,32 +27,31 @@ export async function GET(request: NextRequest) {
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const ctxParam = request.nextUrl.searchParams.get("ctx");
 
   if (ctxParam !== null && !isCtx(ctxParam)) {
     return apiError("INVALID_CTX", "ctx must be either \"work\" or \"home\".", 400);
   }
 
-  let query = supabase
-    .from("dashboard_notes")
-    .select(NOTE_COLUMNS)
-    .order("updated_at", { ascending: false });
+  try {
+    // Drizzle types `ctx` as plain `text` (drizzle-kit doesn't model the check
+    // constraint as an enum), so the row type is wider than `NoteItem`. The
+    // database's check constraint guarantees the narrower union at runtime,
+    // same cast used for the category twins in lib/dashboard/api.ts.
+    // dashboard_notes has no columns beyond NoteItem's contract, so a plain
+    // `select()` does not leak anything (unlike dashboard_categories).
+    const notes = (await db
+      .select()
+      .from(dashboardNotes)
+      .where(ctxParam !== null ? eq(dashboardNotes.ctx, ctxParam) : undefined)
+      .orderBy(desc(dashboardNotes.updated_at))) as NoteItem[];
 
-  if (ctxParam !== null) {
-    query = query.eq("ctx", ctxParam);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("Notes list error:", error);
+    return NextResponse.json({ notes }, { status: 200 });
+  } catch (error) {
+    logQueryError("Notes list error:", error);
     return apiError("SERVER_ERROR", "Could not load notes.", 500);
   }
-
-  const notes: NoteItem[] = data ?? [];
-
-  return NextResponse.json({ notes }, { status: 200 });
 }
 
 /**
@@ -73,7 +69,7 @@ export async function POST(request: NextRequest) {
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const body = await readJsonObject(request);
 
   if (!body) {
@@ -116,7 +112,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const category = await findMatchingCategory(supabase, categoryId, ctx, "note");
+  const category = await findMatchingCategory(db, categoryId, ctx, "note");
 
   if (!category) {
     return apiError(
@@ -126,23 +122,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { data, error } = await supabase
-    .from("dashboard_notes")
-    .insert({
-      ctx,
-      category_id: categoryId,
-      title: typeof title === "string" ? title.trim() : "",
-      content_html: typeof contentHtml === "string" ? sanitizeNoteHtml(contentHtml) : "",
-    })
-    .select(NOTE_COLUMNS)
-    .single();
+  try {
+    const [note] = (await db
+      .insert(dashboardNotes)
+      .values({
+        ctx,
+        category_id: categoryId,
+        title: typeof title === "string" ? title.trim() : "",
+        content_html: typeof contentHtml === "string" ? sanitizeNoteHtml(contentHtml) : "",
+      })
+      .returning()) as NoteItem[];
 
-  if (error || !data) {
-    console.error("Note create error:", error);
+    return NextResponse.json(note, { status: 201 });
+  } catch (error) {
+    logQueryError("Note create error:", error);
     return apiError("SERVER_ERROR", "Could not save the note.", 500);
   }
-
-  const note: NoteItem = data;
-
-  return NextResponse.json(note, { status: 201 });
 }

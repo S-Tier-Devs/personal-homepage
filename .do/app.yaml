@@ -51,6 +51,27 @@ services:
         scope: RUN_TIME
         type: SECRET
         value: ""
+      # The DigitalOcean Managed Postgres connection string for the `homepage`
+      # database on the shared `apps-pg` cluster. A genuine secret: it carries the
+      # database user's password. Left empty here and set out of band, exactly
+      # like SUPABASE_SERVICE_ROLE_KEY above - the same blanking warning applies.
+      #
+      # Uses the cluster's PRIVATE hostname. The app and the cluster are both in
+      # nyc, so private traffic never leaves DigitalOcean's network; the public
+      # hostname would work but would egress needlessly.
+      #
+      # RUN_TIME, not BUILD_TIME: nothing connects at build or import time.
+      # lib/db/client.ts's getDb() is lazy precisely so `npm run build` succeeds
+      # without this value - verified by building with the env absent.
+      #
+      # Load-bearing ordering note: requireAdminAuth() calls getDb() on every
+      # successful auth, so EVERY admin route depends on this at request time,
+      # not just the data routes. It must exist in the live spec BEFORE any
+      # deploy of the Drizzle code, or the whole dashboard 500s.
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
       # NOT a secret, despite the plan declaring it one. This exact address is
       # rendered publicly on the homepage as the primary contact link, and it is
       # only ever compared against the email on an already-authenticated

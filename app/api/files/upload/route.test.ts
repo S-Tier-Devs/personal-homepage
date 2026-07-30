@@ -8,27 +8,41 @@ import { MAX_FILE_SIZE_BYTES } from "@/lib/dashboard/files";
  * mock they reference must be created inside vi.hoisted — same idiom as
  * lib/auth/actions.test.ts.
  */
-const { requireAdminAuth, storageUpload, storageRemove, insertCapture, insertSingle } =
-  vi.hoisted(() => ({
-    requireAdminAuth: vi.fn(),
-    storageUpload: vi.fn(),
-    storageRemove: vi.fn(),
-    insertCapture: vi.fn(),
-    insertSingle: vi.fn(),
-  }));
+const {
+  requireAdminAuth,
+  createServerSupabaseClient,
+  storageUpload,
+  storageRemove,
+  insertCapture,
+  insertReturning,
+} = vi.hoisted(() => ({
+  requireAdminAuth: vi.fn(),
+  createServerSupabaseClient: vi.fn(),
+  storageUpload: vi.fn(),
+  storageRemove: vi.fn(),
+  insertCapture: vi.fn(),
+  insertReturning: vi.fn(),
+}));
 
 vi.mock("@/lib/auth/admin-guard", () => ({ requireAdminAuth }));
+vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient }));
 
-/** The two supabase call chains the route touches, thin enough to assert on. */
+/** The storage call chain the route still touches directly. */
 function makeSupabase() {
   return {
     storage: {
       from: () => ({ upload: storageUpload, remove: storageRemove }),
     },
-    from: () => ({
-      insert: (row: Record<string, unknown>) => {
+  };
+}
+
+/** The Drizzle insert chain the route touches for the metadata row. */
+function makeDb() {
+  return {
+    insert: () => ({
+      values: (row: Record<string, unknown>) => {
         insertCapture(row);
-        return { select: () => ({ single: insertSingle }) };
+        return { returning: insertReturning };
       },
     }),
   };
@@ -46,17 +60,19 @@ function uploadRequest(file: File): NextRequest {
 
 beforeEach(() => {
   requireAdminAuth.mockReset();
+  createServerSupabaseClient.mockReset();
   storageUpload.mockReset();
   storageRemove.mockReset();
   insertCapture.mockReset();
-  insertSingle.mockReset();
+  insertReturning.mockReset();
 
   requireAdminAuth.mockResolvedValue({
     user: { id: "admin-1", email: "admin@example.com" },
-    supabase: makeSupabase(),
+    db: makeDb(),
   });
+  createServerSupabaseClient.mockResolvedValue(makeSupabase());
   storageUpload.mockResolvedValue({ error: null });
-  insertSingle.mockResolvedValue({ data: { id: "row-1" }, error: null });
+  insertReturning.mockResolvedValue([{ id: "row-1" }]);
 });
 
 describe("POST /api/files/upload", () => {

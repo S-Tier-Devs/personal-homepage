@@ -1,43 +1,63 @@
+import { count, eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
 import {
-  CATEGORY_COLUMNS,
   CATEGORY_NAME_MAX_LENGTH,
   FOREIGN_KEY_VIOLATION,
   UNIQUE_VIOLATION,
   apiError,
   isUuid,
   listCategorySiblings,
+  logQueryError,
   normalizeCategoryName,
   postgresErrorCode,
   readJsonObject,
-  type DashboardSupabaseClient,
 } from "@/lib/dashboard/api";
 import type { Category } from "@/lib/dashboard/types";
+import type { DrizzleDb } from "@/lib/db/client";
+import { dashboardCategories, dashboardLinks, dashboardNotes } from "@/lib/db/schema";
 
-/** How many links and notes point at a category. Null when a count query failed. */
+/**
+ * The wire shape for a category. See app/api/categories/route.ts for why this
+ * has to be named explicitly rather than selecting every column: the table
+ * has a `created_at` column the `Category` contract (and the Supabase-era
+ * column list) never exposed.
+ */
+const CATEGORY_FIELDS = {
+  id: dashboardCategories.id,
+  ctx: dashboardCategories.ctx,
+  kind: dashboardCategories.kind,
+  name: dashboardCategories.name,
+  sort_order: dashboardCategories.sort_order,
+};
+
+/**
+ * How many links and notes point at a category. Null when a count query
+ * failed.
+ *
+ * `count()` is typed by drizzle-orm as `SQL<number>`, but the underlying
+ * postgres.js driver has no type-20 (bigint) parser registered in
+ * lib/db/client.ts, so a `COUNT(*)` value can come back as a numeric
+ * *string* at runtime. `Number(...)` normalizes either shape — needed here
+ * because `describeReferences` below does a strict `=== 1` check for
+ * singular/plural wording, which a stray string would silently break.
+ */
 async function countReferences(
-  supabase: DashboardSupabaseClient,
+  db: DrizzleDb,
   categoryId: string
 ): Promise<{ links: number; notes: number } | null> {
-  const [linksResult, notesResult] = await Promise.all([
-    supabase
-      .from("dashboard_links")
-      .select("id", { count: "exact", head: true })
-      .eq("category_id", categoryId),
-    supabase
-      .from("dashboard_notes")
-      .select("id", { count: "exact", head: true })
-      .eq("category_id", categoryId),
-  ]);
+  try {
+    const [linksRows, notesRows] = await Promise.all([
+      db.select({ n: count() }).from(dashboardLinks).where(eq(dashboardLinks.category_id, categoryId)),
+      db.select({ n: count() }).from(dashboardNotes).where(eq(dashboardNotes.category_id, categoryId)),
+    ]);
 
-  if (linksResult.error || notesResult.error) {
-    console.error("Category reference count error:", linksResult.error ?? notesResult.error);
+    return { links: Number(linksRows[0]?.n ?? 0), notes: Number(notesRows[0]?.n ?? 0) };
+  } catch (error) {
+    logQueryError("Category reference count error:", error);
     return null;
   }
-
-  return { links: linksResult.count ?? 0, notes: notesResult.count ?? 0 };
 }
 
 /** "3 links and 1 note" — the reason a delete was refused, in words. */
@@ -74,7 +94,7 @@ export async function PATCH(
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const { id } = await params;
 
   if (!isUuid(id)) {
@@ -97,14 +117,18 @@ export async function PATCH(
     );
   }
 
-  const { data: existing, error: readError } = await supabase
-    .from("dashboard_categories")
-    .select(CATEGORY_COLUMNS)
-    .eq("id", id)
-    .maybeSingle();
+  let existing: Category | undefined;
 
-  if (readError) {
-    console.error("Category read error:", readError);
+  try {
+    const rows = (await db
+      .select(CATEGORY_FIELDS)
+      .from(dashboardCategories)
+      .where(eq(dashboardCategories.id, id))
+      .limit(1)) as Category[];
+
+    existing = rows[0];
+  } catch (error) {
+    logQueryError("Category read error:", error);
     return apiError("SERVER_ERROR", "Could not load the category.", 500);
   }
 
@@ -119,7 +143,7 @@ export async function PATCH(
     return NextResponse.json(current, { status: 200 });
   }
 
-  const siblings = await listCategorySiblings(supabase, current.ctx, current.kind);
+  const siblings = await listCategorySiblings(db, current.ctx, current.kind);
 
   if (!siblings) {
     return apiError("SERVER_ERROR", "Could not rename the category.", 500);
@@ -136,29 +160,29 @@ export async function PATCH(
     return apiError("CONFLICT", `“${trimmedName}” already exists in this list.`, 409);
   }
 
-  const { data, error } = await supabase
-    .from("dashboard_categories")
-    .update({ name: trimmedName })
-    .eq("id", id)
-    .select(CATEGORY_COLUMNS)
-    .maybeSingle();
+  try {
+    const [category] = (await db
+      .update(dashboardCategories)
+      .set({ name: trimmedName })
+      .where(eq(dashboardCategories.id, id))
+      .returning(CATEGORY_FIELDS)) as Category[];
 
-  if (error) {
+    if (!category) {
+      return apiError("NOT_FOUND", "No category with that id.", 404);
+    }
+
+    return NextResponse.json(category, { status: 200 });
+  } catch (error) {
+    // The check above only catches a pre-existing duplicate; this is the net
+    // for a concurrent request that renamed a sibling to the same name
+    // between the check and this write.
     if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
       return apiError("CONFLICT", `“${trimmedName}” already exists in this list.`, 409);
     }
 
-    console.error("Category update error:", error);
+    logQueryError("Category update error:", error);
     return apiError("SERVER_ERROR", "Could not rename the category.", 500);
   }
-
-  if (!data) {
-    return apiError("NOT_FOUND", "No category with that id.", 404);
-  }
-
-  const category: Category = data;
-
-  return NextResponse.json(category, { status: 200 });
 }
 
 /**
@@ -182,21 +206,25 @@ export async function DELETE(
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const { id } = await params;
 
   if (!isUuid(id)) {
     return apiError("NOT_FOUND", "No category with that id.", 404);
   }
 
-  const { data: existing, error: readError } = await supabase
-    .from("dashboard_categories")
-    .select(CATEGORY_COLUMNS)
-    .eq("id", id)
-    .maybeSingle();
+  let existing: Category | undefined;
 
-  if (readError) {
-    console.error("Category read error:", readError);
+  try {
+    const rows = (await db
+      .select(CATEGORY_FIELDS)
+      .from(dashboardCategories)
+      .where(eq(dashboardCategories.id, id))
+      .limit(1)) as Category[];
+
+    existing = rows[0];
+  } catch (error) {
+    logQueryError("Category read error:", error);
     return apiError("SERVER_ERROR", "Could not load the category.", 500);
   }
 
@@ -206,7 +234,7 @@ export async function DELETE(
 
   const current: Category = existing;
 
-  const siblings = await listCategorySiblings(supabase, current.ctx, current.kind);
+  const siblings = await listCategorySiblings(db, current.ctx, current.kind);
 
   if (!siblings) {
     return apiError("SERVER_ERROR", "Could not delete the category.", 500);
@@ -220,7 +248,7 @@ export async function DELETE(
     );
   }
 
-  const references = await countReferences(supabase, id);
+  const references = await countReferences(db, id);
 
   if (!references) {
     return apiError("SERVER_ERROR", "Could not delete the category.", 500);
@@ -234,14 +262,18 @@ export async function DELETE(
     );
   }
 
-  const { data, error } = await supabase
-    .from("dashboard_categories")
-    .delete()
-    .eq("id", id)
-    .select("id")
-    .maybeSingle();
+  try {
+    const deleted = await db
+      .delete(dashboardCategories)
+      .where(eq(dashboardCategories.id, id))
+      .returning({ id: dashboardCategories.id });
 
-  if (error) {
+    if (deleted.length === 0) {
+      return apiError("NOT_FOUND", "No category with that id.", 404);
+    }
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (error) {
     // Something was filed under this category between the count and the delete.
     if (postgresErrorCode(error) === FOREIGN_KEY_VIOLATION) {
       return apiError(
@@ -251,13 +283,7 @@ export async function DELETE(
       );
     }
 
-    console.error("Category delete error:", error);
+    logQueryError("Category delete error:", error);
     return apiError("SERVER_ERROR", "Could not delete the category.", 500);
   }
-
-  if (!data) {
-    return apiError("NOT_FOUND", "No category with that id.", 404);
-  }
-
-  return NextResponse.json({ ok: true }, { status: 200 });
 }

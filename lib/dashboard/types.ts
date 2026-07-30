@@ -80,7 +80,7 @@ export interface NoteItem {
  * identically in Work and Home. Do not add workspace filtering here.
  *
  * `storage_path` and `uploaded_by` exist on the table but are not part of the
- * list contract; see `FILE_COLUMNS` in lib/dashboard/files.ts.
+ * list contract; see `FILE_FIELDS` in app/api/files/route.ts.
  */
 export interface DocumentItem {
   id: string;

@@ -1,22 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 
-const { requireAdminAuth, maybeSingle, updateEq, createSignedUrl } = vi.hoisted(() => ({
-  requireAdminAuth: vi.fn(),
-  maybeSingle: vi.fn(),
-  updateEq: vi.fn(),
-  createSignedUrl: vi.fn(),
-}));
+const { requireAdminAuth, createServerSupabaseClient, selectLimit, updateWhere, createSignedUrl } =
+  vi.hoisted(() => ({
+    requireAdminAuth: vi.fn(),
+    createServerSupabaseClient: vi.fn(),
+    selectLimit: vi.fn(),
+    updateWhere: vi.fn(),
+    createSignedUrl: vi.fn(),
+  }));
 
 vi.mock("@/lib/auth/admin-guard", () => ({ requireAdminAuth }));
+vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient }));
 
+/** The storage call chain the route still touches directly. */
 function makeSupabase() {
   return {
-    from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle }) }),
-      update: () => ({ eq: updateEq }),
-    }),
     storage: { from: () => ({ createSignedUrl }) },
+  };
+}
+
+/** The Drizzle select/update chains the route touches for the metadata row. */
+function makeDb() {
+  return {
+    select: () => ({
+      from: () => ({
+        where: () => ({ limit: selectLimit }),
+      }),
+    }),
+    update: () => ({
+      set: () => ({ where: updateWhere }),
+    }),
   };
 }
 
@@ -28,19 +42,20 @@ function downloadRequest(): NextRequest {
 
 beforeEach(() => {
   requireAdminAuth.mockReset();
-  maybeSingle.mockReset();
-  updateEq.mockReset();
+  createServerSupabaseClient.mockReset();
+  selectLimit.mockReset();
+  updateWhere.mockReset();
   createSignedUrl.mockReset();
 
   requireAdminAuth.mockResolvedValue({
     user: { id: "admin-1", email: "admin@example.com" },
-    supabase: makeSupabase(),
+    db: makeDb(),
   });
-  maybeSingle.mockResolvedValue({
-    data: { id: FILE_ID, storage_path: "uploads/abc.pdf", file_name: "report.pdf" },
-    error: null,
-  });
-  updateEq.mockResolvedValue({ error: null });
+  createServerSupabaseClient.mockResolvedValue(makeSupabase());
+  selectLimit.mockResolvedValue([
+    { id: FILE_ID, storage_path: "uploads/abc.pdf", file_name: "report.pdf" },
+  ]);
+  updateWhere.mockResolvedValue(undefined);
   createSignedUrl.mockResolvedValue({
     data: { signedUrl: "https://signed.example/abc" },
     error: null,

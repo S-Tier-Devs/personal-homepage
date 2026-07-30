@@ -1,17 +1,37 @@
+import { asc } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
 import {
-  CATEGORY_COLUMNS,
   CATEGORY_NAME_MAX_LENGTH,
   UNIQUE_VIOLATION,
   apiError,
   listCategorySiblings,
+  logQueryError,
   normalizeCategoryName,
   postgresErrorCode,
   readJsonObject,
 } from "@/lib/dashboard/api";
 import { isCategoryKind, isCtx, type Category } from "@/lib/dashboard/types";
+import { dashboardCategories } from "@/lib/db/schema";
+
+/**
+ * The wire shape for a category: `dashboard_categories` also has a
+ * `created_at` column (carried for the schema's own bookkeeping), but the
+ * `Category` contract never included it — the Supabase-era routes selected
+ * "id, ctx, kind, name, sort_order" rather than `*`. An
+ * unqualified `db.select().from(dashboardCategories)` would pull every
+ * column, so every select/insert/update that returns a category to the
+ * client names its fields explicitly to keep the response byte-for-byte
+ * identical to the Supabase-era one.
+ */
+const CATEGORY_FIELDS = {
+  id: dashboardCategories.id,
+  ctx: dashboardCategories.ctx,
+  kind: dashboardCategories.kind,
+  name: dashboardCategories.name,
+  sort_order: dashboardCategories.sort_order,
+};
 
 /**
  * GET /api/categories
@@ -28,23 +48,27 @@ export async function GET(request: NextRequest) {
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
 
-  const { data, error } = await supabase
-    .from("dashboard_categories")
-    .select(CATEGORY_COLUMNS)
-    .order("ctx", { ascending: true })
-    .order("kind", { ascending: true })
-    .order("sort_order", { ascending: true });
+  try {
+    // Drizzle types `ctx`/`kind` as plain `text` (drizzle-kit doesn't model the
+    // check constraints as enums), so the row type is wider than `Category`.
+    // The database's check constraints guarantee the narrower union at
+    // runtime, same cast used for the category twins in lib/dashboard/api.ts.
+    const categories = (await db
+      .select(CATEGORY_FIELDS)
+      .from(dashboardCategories)
+      .orderBy(
+        asc(dashboardCategories.ctx),
+        asc(dashboardCategories.kind),
+        asc(dashboardCategories.sort_order)
+      )) as Category[];
 
-  if (error) {
-    console.error("Categories list error:", error);
+    return NextResponse.json({ categories }, { status: 200 });
+  } catch (error) {
+    logQueryError("Categories list error:", error);
     return apiError("SERVER_ERROR", "Could not load categories.", 500);
   }
-
-  const categories: Category[] = data ?? [];
-
-  return NextResponse.json({ categories }, { status: 200 });
 }
 
 /**
@@ -64,7 +88,7 @@ export async function POST(request: NextRequest) {
     return authResult.error;
   }
 
-  const { supabase } = authResult;
+  const { db } = authResult;
   const body = await readJsonObject(request);
 
   if (!body) {
@@ -91,7 +115,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const siblings = await listCategorySiblings(supabase, ctx, kind);
+  const siblings = await listCategorySiblings(db, ctx, kind);
 
   if (!siblings) {
     return apiError("SERVER_ERROR", "Could not save the category.", 500);
@@ -106,22 +130,22 @@ export async function POST(request: NextRequest) {
   const nextSortOrder =
     siblings.reduce((highest, sibling) => Math.max(highest, sibling.sort_order), -1) + 1;
 
-  const { data, error } = await supabase
-    .from("dashboard_categories")
-    .insert({ ctx, kind, name: trimmedName, sort_order: nextSortOrder })
-    .select(CATEGORY_COLUMNS)
-    .single();
+  try {
+    const [category] = (await db
+      .insert(dashboardCategories)
+      .values({ ctx, kind, name: trimmedName, sort_order: nextSortOrder })
+      .returning(CATEGORY_FIELDS)) as Category[];
 
-  if (error || !data) {
+    return NextResponse.json(category, { status: 201 });
+  } catch (error) {
+    // The case-insensitive check above only catches a pre-existing duplicate;
+    // this is the net for a concurrent request that inserted the same
+    // (ctx, kind, name) between the check and this write.
     if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
       return apiError("CONFLICT", `“${trimmedName}” already exists in this list.`, 409);
     }
 
-    console.error("Category create error:", error);
+    logQueryError("Category create error:", error);
     return apiError("SERVER_ERROR", "Could not save the category.", 500);
   }
-
-  const category: Category = data;
-
-  return NextResponse.json(category, { status: 201 });
 }

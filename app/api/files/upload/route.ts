@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError } from "@/lib/dashboard/api";
+import { apiError, logQueryError } from "@/lib/dashboard/api";
 import {
   MAX_FILE_SIZE_BYTES,
   MAX_FILE_SIZE_LABEL,
   fileExtension,
 } from "@/lib/dashboard/files";
+import { filesMetadata } from "@/lib/db/schema";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 /**
  * POST /api/files/upload
@@ -21,7 +23,8 @@ export async function POST(request: NextRequest) {
     return authResult.error;
   }
 
-  const { user, supabase } = authResult;
+  const { user, db } = authResult;
+  const supabase = await createServerSupabaseClient();
 
   try {
     const formData = await request.formData();
@@ -61,34 +64,37 @@ export async function POST(request: NextRequest) {
     }
 
     // Store metadata in Postgres
-    const { data, error: dbError } = await supabase
-      .from("files_metadata")
-      .insert({
-        storage_path: storagePath,
-        file_name: fileName,
-        mime_type: contentType,
-        file_extension: extension,
-        file_size_bytes: fileBuffer.byteLength,
-        description: description || null,
-        visibility: "private",
-        uploaded_by: user.id,
-      })
-      .select("*")
-      .single();
+    let insertedFile: Record<string, unknown> | undefined;
 
-    if (dbError) {
-      console.error("Database insert error:", dbError);
+    try {
+      const rows = await db
+        .insert(filesMetadata)
+        .values({
+          storage_path: storagePath,
+          file_name: fileName,
+          mime_type: contentType,
+          file_extension: extension,
+          file_size_bytes: fileBuffer.byteLength,
+          description: description || null,
+          visibility: "private",
+          uploaded_by: user.id,
+        })
+        .returning();
+
+      insertedFile = rows[0];
+    } catch (dbError) {
+      logQueryError("Database insert error:", dbError);
       // Clean up storage if metadata insert fails
       await supabase.storage.from("files").remove([storagePath]);
       return apiError("SERVER_ERROR", "Could not save the file details.", 500);
     }
 
     return NextResponse.json(
-      { message: "File uploaded successfully", file: data },
+      { message: "File uploaded successfully", file: insertedFile },
       { status: 201 }
     );
   } catch (error) {
-    console.error("File upload error:", error);
+    logQueryError("File upload error:", error);
     return apiError("SERVER_ERROR", "Internal server error.", 500);
   }
 }
