@@ -8,7 +8,13 @@ The repo runs **Next.js 16** and **Tailwind CSS v4**. Both differ from what you 
 
 ## Architecture
 
-Public one-pager at `/`, private dashboard at `/dashboard`. Supabase provides Postgres, auth and storage. See `README.md` for the data model and auth design.
+Public one-pager at `/`, private dashboard at `/dashboard`. See `README.md` for the data model and auth design.
+
+**The backend is mid-migration off Supabase onto DigitalOcean.** As of 2026-07-30, Phase 1 has shipped:
+
+- **Data lives in DigitalOcean Managed Postgres**, database `homepage` on the shared `apps-pg` cluster (which also hosts `gsd`), reached through Drizzle ORM over the `postgres` driver. `lib/db/schema.ts` is the schema, `lib/db/client.ts` the handle, `drizzle/` the committed migrations, `npm run db:generate` / `npm run db:migrate` the workflow. **There is no RLS** — `requireAdminAuth` is the single authorization choke point, deliberately (spec `docs/superpowers/specs/2026-07-29-supabase-to-digitalocean-phase-1-data-design.md`).
+- **Supabase still provides auth** (session verification via `@supabase/ssr` + local JWKS) **and storage bytes** for Documents. Both move in later phases. Files routes are deliberately dual-client: metadata through Drizzle, bytes through Supabase.
+- Supabase's Postgres is retained as the rollback target, frozen at cutover copy time, until the auth phase lands.
 
 **`design/patrick-beasley.dc.html` is the behavioural spec.** Cite its line numbers; do not paraphrase it from memory.
 
@@ -16,7 +22,9 @@ Public one-pager at `/`, private dashboard at `/dashboard`. Supabase provides Po
 
 DigitalOcean App Platform, app `personal-homepage`, region `nyc`. `.do/app.yaml` is the source of truth for the app spec - **never edit the app in the DO web console**, or the console and the spec drift. Production deploys from `main` on merge (`deploy_on_push: true`).
 
-The spec declares four env vars: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` at `BUILD_TIME` (Next.js inlines `NEXT_PUBLIC_*` at build time), plus `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAIL` at `RUN_TIME`. Only `SUPABASE_SERVICE_ROLE_KEY` is a secret: it bypasses RLS, so it is `type: SECRET`, empty in the committed spec, and set out of band. `ADMIN_EMAIL` is a plain spec value; it is the contact address this site publishes and is only compared against an already-authenticated session, so it is not sensitive and belongs in the spec so the app is reproducible from it.
+`DATABASE_URL` was added 2026-07-30 for the Postgres migration: `RUN_TIME`, `type: SECRET`, blank in the committed spec, using the cluster's **private** hostname. It is load-bearing in an order-dependent way — `requireAdminAuth` calls `getDb()` on every successful auth, so *every* admin route depends on it at request time, not just data routes. It must exist in the live spec before any deploy of the Drizzle code.
+
+The spec otherwise declares four env vars: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` at `BUILD_TIME` (Next.js inlines `NEXT_PUBLIC_*` at build time), plus `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAIL` at `RUN_TIME`. Only `SUPABASE_SERVICE_ROLE_KEY` is a secret: it bypasses RLS, so it is `type: SECRET`, empty in the committed spec, and set out of band. `ADMIN_EMAIL` is a plain spec value; it is the contact address this site publishes and is only compared against an already-authenticated session, so it is not sensitive and belongs in the spec so the app is reproducible from it.
 
 ### Never apply the committed spec directly
 
@@ -75,6 +83,10 @@ True now, and not visible from the code:
 **The dev CSP needs `'unsafe-eval'`; production must not have it.** React uses `eval()` in development. `next.config.ts` gates it on `NODE_ENV`.
 
 **Never revoke `EXECUTE` on `public.is_admin()`.** RLS policy expressions run in the *querying* role's security context, so revoking breaks every admin query. The `PUBLIC` grant also hides behind a bare `=X` in `proacl`, so a `has_function_privilege` check filtered over `pg_roles` will not see it.
+
+**Drizzle silently overwrites postgres.js type parsers, and it cost most of a day.** `drizzle-orm/postgres-js`'s `construct()` replaces `client.options.parsers` for every temporal OID (1184, 1114, 1082, and more) with a transparent `(val) => val` at construction time. So `postgres(url, { types })` is *declared* and then discarded: the config on the `postgres()` call has no effect on anything routed through the Drizzle handle. `lib/db/client.ts` re-asserts the parsers **after** `drizzle()` returns; deleting that loop turns `lib/db/client.test.ts` red. This matters because PostgREST returned timestamps as ISO 8601 (`...T...+00:00`) while postgres.js's native text is `... ...+00`, and `formatDate()` silently renders `—` when `new Date()` yields `NaN` — V8 tolerates the non-ISO form, other engines need not. **Verify any change here through an actual Drizzle handle, never through a bare `postgres()` client** — a probe against a raw client "passed" while production was broken, and that false green survived a review. If you upgrade `drizzle-orm`, re-run that through-the-handle probe.
+
+**`DrizzleQueryError` has no `.code` and puts parameter *values* in its `message`.** Drizzle wraps every query error, so `error.code` is `undefined` where PostgREST gave you a SQLSTATE — read it off `error.cause` instead (`postgresErrorCode` in `lib/dashboard/api.ts` does). Two consequences bit at once: every `23505`/`23503` → 409 mapping silently stopped firing and returned 500s, and logging `error.message` leaked query parameters — including the GSD API key on the `gsd_config` write path. **Never log a raw query error or its wrapper message**; use `logQueryError`, which logs the label, the unwrapped SQLSTATE, and the *cause's* message.
 
 **Storage objects need their own policy.** RLS on `storage.objects` is separate from the `files_metadata` table. `createSignedUrl()` requires `select`, so an insert/delete-only policy breaks downloads.
 
