@@ -2,7 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, findMatchingCategory, readJsonObject } from "@/lib/dashboard/api";
+import { apiError, findMatchingCategory, logQueryError, readJsonObject } from "@/lib/dashboard/api";
 import { isCtx, type NoteItem } from "@/lib/dashboard/types";
 import { dashboardNotes } from "@/lib/db/schema";
 import {
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ notes }, { status: 200 });
   } catch (error) {
-    console.error("Notes list error:", error);
+    logQueryError("Notes list error:", error);
     return apiError("SERVER_ERROR", "Could not load notes.", 500);
   }
 }
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(note, { status: 201 });
   } catch (error) {
-    console.error("Note create error:", error);
+    logQueryError("Note create error:", error);
     return apiError("SERVER_ERROR", "Could not save the note.", 500);
   }
 }

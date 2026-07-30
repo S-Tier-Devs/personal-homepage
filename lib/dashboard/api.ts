@@ -98,6 +98,31 @@ export function postgresErrorCode(error: unknown): string | null {
   return null;
 }
 
+/**
+ * Logs a caught query failure's SQLSTATE and cause message only — never the
+ * error object and never a `DrizzleQueryError`'s own `message`, which embeds
+ * the literal query *parameter values*
+ * (`node_modules/drizzle-orm/errors.js`: `Failed query: ...\nparams: ...`).
+ * PostgREST never did this, so this is the one path every route's `catch`
+ * must go through instead of `console.error(label, error)` — a personal
+ * dashboard's Notes/Links write params are arbitrary free text and URLs, both
+ * plausible homes for a pasted secret or token.
+ *
+ * `cause` is postgres.js's `PostgresError` when the query reached Postgres —
+ * its `message` carries no parameter values. For an error with no `cause`
+ * (a plain `Error` a route constructs itself, e.g. "upsert returned no row"),
+ * the error's own message is safe to log and is used instead.
+ */
+export function logQueryError(label: string, error: unknown): void {
+  const cause = error instanceof Error && error.cause !== undefined ? error.cause : error;
+
+  console.error(
+    label,
+    postgresErrorCode(error),
+    cause instanceof Error ? cause.message : String(cause)
+  );
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -212,7 +237,7 @@ export async function listCategorySiblings(
 
     return rows as Category[];
   } catch (error) {
-    console.error("Category siblings read error:", error);
+    logQueryError("Category siblings read error:", error);
     return null;
   }
 }

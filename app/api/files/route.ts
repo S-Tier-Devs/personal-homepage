@@ -2,7 +2,7 @@ import { desc } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError } from "@/lib/dashboard/api";
+import { apiError, logQueryError } from "@/lib/dashboard/api";
 import type { DocumentItem } from "@/lib/dashboard/types";
 import { filesMetadata } from "@/lib/db/schema";
 
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ files }, { status: 200 });
   } catch (error) {
-    console.error("Files list error:", error);
+    logQueryError("Files list error:", error);
     return apiError("SERVER_ERROR", "Could not load documents.", 500);
   }
 }

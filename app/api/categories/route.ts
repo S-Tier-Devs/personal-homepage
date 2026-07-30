@@ -7,6 +7,7 @@ import {
   UNIQUE_VIOLATION,
   apiError,
   listCategorySiblings,
+  logQueryError,
   normalizeCategoryName,
   postgresErrorCode,
   readJsonObject,
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ categories }, { status: 200 });
   } catch (error) {
-    console.error("Categories list error:", error);
+    logQueryError("Categories list error:", error);
     return apiError("SERVER_ERROR", "Could not load categories.", 500);
   }
 }
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
       return apiError("CONFLICT", `“${trimmedName}” already exists in this list.`, 409);
     }
 
-    console.error("Category create error:", error);
+    logQueryError("Category create error:", error);
     return apiError("SERVER_ERROR", "Could not save the category.", 500);
   }
 }

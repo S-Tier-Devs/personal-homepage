@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, postgresErrorCode, readJsonObject } from "@/lib/dashboard/api";
+import { apiError, logQueryError, readJsonObject } from "@/lib/dashboard/api";
 import type { GsdKeyStatus } from "@/lib/dashboard/types";
 import { gsdConfig } from "@/lib/db/schema";
 import { testGsdKey } from "@/lib/gsd/client";
@@ -12,29 +12,15 @@ import { testGsdKey } from "@/lib/gsd/client";
  * 2026-07-23-gsd-key-management-design.md). The key goes in via PUT and never
  * comes back out: GET selects key_last4/updated_at only, and no response,
  * log, or error body here may ever contain api_key.
+ *
+ * Query-error logging goes through `logQueryError` (lib/dashboard/api.ts) —
+ * never `console.error(label, error)` — because drizzle-orm wraps every query
+ * failure in `DrizzleQueryError`, whose message embeds the query *params*;
+ * for the gsd_config upsert those include the full api_key.
  */
 
 /** Sanity cap; real GSD keys are far shorter. Verification is the true gate. */
 const GSD_KEY_MAX_LENGTH = 200;
-
-/**
- * Only the SQLSTATE and a parameter-free message — never a raw error object,
- * and never a drizzle wrapper's message. drizzle-orm wraps every query
- * failure in `DrizzleQueryError`, whose message embeds the query *params* —
- * for the gsd_config upsert those include the full api_key — so logging
- * `error.message` here leaked the key. The wrapper's `cause` is postgres.js's
- * `PostgresError`, whose message carries no parameter values; log that
- * instead.
- */
-function logKeyError(label: string, error: unknown) {
-  const cause = error instanceof Error && error.cause !== undefined ? error.cause : error;
-
-  console.error(
-    label,
-    postgresErrorCode(error),
-    cause instanceof Error ? cause.message : String(cause)
-  );
-}
 
 /**
  * GET /api/gsd-key
@@ -58,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     row = rows[0];
   } catch (error) {
-    logKeyError("GSD key status read error:", error);
+    logQueryError("GSD key status read error:", error);
     return apiError("SERVER_ERROR", "Could not read the key status.", 500);
   }
 
@@ -151,7 +137,7 @@ export async function PUT(request: NextRequest) {
       .returning({ key_last4: gsdConfig.key_last4, updated_at: gsdConfig.updated_at });
 
     if (!row) {
-      logKeyError("GSD key save error:", new Error("upsert returned no row"));
+      logQueryError("GSD key save error:", new Error("upsert returned no row"));
       return apiError("SERVER_ERROR", "The key verified but could not be saved.", 500);
     }
 
@@ -163,7 +149,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json(status, { status: 200 });
   } catch (error) {
-    logKeyError("GSD key save error:", error);
+    logQueryError("GSD key save error:", error);
     return apiError("SERVER_ERROR", "The key verified but could not be saved.", 500);
   }
 }
@@ -183,7 +169,7 @@ export async function DELETE(request: NextRequest) {
   try {
     await db.delete(gsdConfig).where(eq(gsdConfig.id, 1));
   } catch (error) {
-    logKeyError("GSD key delete error:", error);
+    logQueryError("GSD key delete error:", error);
     return apiError("SERVER_ERROR", "Could not remove the key.", 500);
   }
 

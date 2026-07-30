@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, isUuid } from "@/lib/dashboard/api";
+import { apiError, isUuid, logQueryError } from "@/lib/dashboard/api";
 import type { LinkItem } from "@/lib/dashboard/types";
 import { dashboardLinks } from "@/lib/db/schema";
 
@@ -52,7 +52,7 @@ export async function POST(
 
     return NextResponse.json(updated, { status: 200 });
   } catch (error) {
-    console.error("Link click increment error:", error);
+    logQueryError("Link click increment error:", error);
     return apiError("SERVER_ERROR", "Could not record the click.", 500);
   }
 }

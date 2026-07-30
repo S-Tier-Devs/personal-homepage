@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, isUuid } from "@/lib/dashboard/api";
+import { apiError, isUuid, logQueryError } from "@/lib/dashboard/api";
 import { filesMetadata } from "@/lib/db/schema";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -48,7 +48,7 @@ export async function GET(
 
       fileData = rows[0];
     } catch (error) {
-      console.error("File lookup error:", error);
+      logQueryError("File lookup error:", error);
       return apiError("SERVER_ERROR", "Could not prepare the download.", 500);
     }
 
@@ -75,7 +75,7 @@ export async function GET(
         .set({ last_downloaded_at: new Date().toISOString() })
         .where(eq(filesMetadata.id, id));
     } catch (error) {
-      console.error("Last-downloaded update error:", error);
+      logQueryError("Last-downloaded update error:", error);
     }
 
     return NextResponse.json(
@@ -86,7 +86,7 @@ export async function GET(
       { status: 200 }
     );
   } catch (error) {
-    console.error("Download URL generation error:", error);
+    logQueryError("Download URL generation error:", error);
     return apiError("SERVER_ERROR", "Internal server error.", 500);
   }
 }

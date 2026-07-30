@@ -2,7 +2,13 @@ import { desc, eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, findMatchingCategory, normalizeUrl, readJsonObject } from "@/lib/dashboard/api";
+import {
+  apiError,
+  findMatchingCategory,
+  logQueryError,
+  normalizeUrl,
+  readJsonObject,
+} from "@/lib/dashboard/api";
 import { isCtx, type LinkItem } from "@/lib/dashboard/types";
 import { dashboardLinks } from "@/lib/db/schema";
 
@@ -40,7 +46,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ links }, { status: 200 });
   } catch (error) {
-    console.error("Links list error:", error);
+    logQueryError("Links list error:", error);
     return apiError("SERVER_ERROR", "Could not load links.", 500);
   }
 }
@@ -116,7 +122,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(link, { status: 201 });
   } catch (error) {
-    console.error("Link create error:", error);
+    logQueryError("Link create error:", error);
     return apiError("SERVER_ERROR", "Could not save the link.", 500);
   }
 }

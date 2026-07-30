@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, isUuid, readJsonObject } from "@/lib/dashboard/api";
+import { apiError, isUuid, logQueryError, readJsonObject } from "@/lib/dashboard/api";
 import { filesMetadata } from "@/lib/db/schema";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -69,7 +69,7 @@ export async function PATCH(
 
       file = rows[0];
     } catch (error) {
-      console.error("File update error:", error);
+      logQueryError("File update error:", error);
       return apiError("SERVER_ERROR", "Could not update the document.", 500);
     }
 
@@ -82,7 +82,7 @@ export async function PATCH(
       { status: 200 }
     );
   } catch (error) {
-    console.error("File update error:", error);
+    logQueryError("File update error:", error);
     return apiError("SERVER_ERROR", "Internal server error.", 500);
   }
 }
@@ -121,7 +121,7 @@ export async function DELETE(
 
       fileData = rows[0];
     } catch (error) {
-      console.error("File lookup error:", error);
+      logQueryError("File lookup error:", error);
       return apiError("SERVER_ERROR", "Could not delete the document.", 500);
     }
 
@@ -143,7 +143,7 @@ export async function DELETE(
     try {
       await db.delete(filesMetadata).where(eq(filesMetadata.id, id));
     } catch (error) {
-      console.error("Database deletion error:", error);
+      logQueryError("Database deletion error:", error);
       return apiError("SERVER_ERROR", "Could not delete the document.", 500);
     }
 
@@ -152,7 +152,7 @@ export async function DELETE(
       { status: 200 }
     );
   } catch (error) {
-    console.error("File deletion error:", error);
+    logQueryError("File deletion error:", error);
     return apiError("SERVER_ERROR", "Internal server error.", 500);
   }
 }

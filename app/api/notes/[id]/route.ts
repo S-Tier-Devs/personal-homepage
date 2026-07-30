@@ -2,7 +2,13 @@ import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, findMatchingCategory, isUuid, readJsonObject } from "@/lib/dashboard/api";
+import {
+  apiError,
+  findMatchingCategory,
+  isUuid,
+  logQueryError,
+  readJsonObject,
+} from "@/lib/dashboard/api";
 import { isCtx, type Ctx, type NoteItem } from "@/lib/dashboard/types";
 import { dashboardNotes } from "@/lib/db/schema";
 import {
@@ -73,7 +79,7 @@ export async function PATCH(
 
     existing = rows[0];
   } catch (error) {
-    console.error("Note read error:", error);
+    logQueryError("Note read error:", error);
     return apiError("SERVER_ERROR", "Could not load the note.", 500);
   }
 
@@ -165,7 +171,7 @@ export async function PATCH(
 
     return NextResponse.json(note, { status: 200 });
   } catch (error) {
-    console.error("Note update error:", error);
+    logQueryError("Note update error:", error);
     return apiError("SERVER_ERROR", "Could not update the note.", 500);
   }
 }
@@ -203,7 +209,7 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (error) {
-    console.error("Note delete error:", error);
+    logQueryError("Note delete error:", error);
     return apiError("SERVER_ERROR", "Could not delete the note.", 500);
   }
 }

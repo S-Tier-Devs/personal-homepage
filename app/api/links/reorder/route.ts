@@ -2,7 +2,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, isUuid, readJsonObject } from "@/lib/dashboard/api";
+import { apiError, isUuid, logQueryError, readJsonObject } from "@/lib/dashboard/api";
 import type { LinkItem } from "@/lib/dashboard/types";
 import { dashboardLinks } from "@/lib/db/schema";
 
@@ -87,7 +87,7 @@ export async function PATCH(request: NextRequest) {
     // used for the category twins in lib/dashboard/api.ts.
     rows = (await db.select().from(dashboardLinks).where(inArray(dashboardLinks.id, ids))) as LinkItem[];
   } catch (error) {
-    console.error("Link reorder read error:", error);
+    logQueryError("Link reorder read error:", error);
     return apiError("SERVER_ERROR", "Could not load the links.", 500);
   }
 
@@ -127,7 +127,7 @@ export async function PATCH(request: NextRequest) {
       // is capped at MAX_REORDER_ROWS, so the blast radius is bounded. Making
       // the batch atomic needs a Postgres function (a single UPDATE ... FROM
       // over the batch); deferred as an owner decision rather than assumed.
-      console.error("Link reorder write error:", error);
+      logQueryError("Link reorder write error:", error);
       return apiError("SERVER_ERROR", "Could not save the new order.", 500);
     }
   }
@@ -141,7 +141,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ links }, { status: 200 });
   } catch (error) {
-    console.error("Link reorder reload error:", error);
+    logQueryError("Link reorder reload error:", error);
     return apiError("SERVER_ERROR", "Could not reload the links.", 500);
   }
 }

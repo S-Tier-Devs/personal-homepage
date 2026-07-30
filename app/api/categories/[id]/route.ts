@@ -9,6 +9,7 @@ import {
   apiError,
   isUuid,
   listCategorySiblings,
+  logQueryError,
   normalizeCategoryName,
   postgresErrorCode,
   readJsonObject,
@@ -54,7 +55,7 @@ async function countReferences(
 
     return { links: Number(linksRows[0]?.n ?? 0), notes: Number(notesRows[0]?.n ?? 0) };
   } catch (error) {
-    console.error("Category reference count error:", error);
+    logQueryError("Category reference count error:", error);
     return null;
   }
 }
@@ -127,7 +128,7 @@ export async function PATCH(
 
     existing = rows[0];
   } catch (error) {
-    console.error("Category read error:", error);
+    logQueryError("Category read error:", error);
     return apiError("SERVER_ERROR", "Could not load the category.", 500);
   }
 
@@ -179,7 +180,7 @@ export async function PATCH(
       return apiError("CONFLICT", `“${trimmedName}” already exists in this list.`, 409);
     }
 
-    console.error("Category update error:", error);
+    logQueryError("Category update error:", error);
     return apiError("SERVER_ERROR", "Could not rename the category.", 500);
   }
 }
@@ -223,7 +224,7 @@ export async function DELETE(
 
     existing = rows[0];
   } catch (error) {
-    console.error("Category read error:", error);
+    logQueryError("Category read error:", error);
     return apiError("SERVER_ERROR", "Could not load the category.", 500);
   }
 
@@ -282,7 +283,7 @@ export async function DELETE(
       );
     }
 
-    console.error("Category delete error:", error);
+    logQueryError("Category delete error:", error);
     return apiError("SERVER_ERROR", "Could not delete the category.", 500);
   }
 }

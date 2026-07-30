@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError } from "@/lib/dashboard/api";
+import { apiError, logQueryError } from "@/lib/dashboard/api";
 import {
   MAX_FILE_SIZE_BYTES,
   MAX_FILE_SIZE_LABEL,
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
       insertedFile = rows[0];
     } catch (dbError) {
-      console.error("Database insert error:", dbError);
+      logQueryError("Database insert error:", dbError);
       // Clean up storage if metadata insert fails
       await supabase.storage.from("files").remove([storagePath]);
       return apiError("SERVER_ERROR", "Could not save the file details.", 500);
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    console.error("File upload error:", error);
+    logQueryError("File upload error:", error);
     return apiError("SERVER_ERROR", "Internal server error.", 500);
   }
 }

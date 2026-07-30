@@ -2,7 +2,14 @@ import { eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminAuth } from "@/lib/auth/admin-guard";
-import { apiError, findMatchingCategory, isUuid, normalizeUrl, readJsonObject } from "@/lib/dashboard/api";
+import {
+  apiError,
+  findMatchingCategory,
+  isUuid,
+  logQueryError,
+  normalizeUrl,
+  readJsonObject,
+} from "@/lib/dashboard/api";
 import { isCtx, type Ctx, type LinkItem } from "@/lib/dashboard/types";
 import { dashboardLinks } from "@/lib/db/schema";
 
@@ -61,7 +68,7 @@ export async function PATCH(
 
     existing = rows[0];
   } catch (error) {
-    console.error("Link read error:", error);
+    logQueryError("Link read error:", error);
     return apiError("SERVER_ERROR", "Could not load the link.", 500);
   }
 
@@ -159,7 +166,7 @@ export async function PATCH(
 
     return NextResponse.json(link, { status: 200 });
   } catch (error) {
-    console.error("Link update error:", error);
+    logQueryError("Link update error:", error);
     return apiError("SERVER_ERROR", "Could not update the link.", 500);
   }
 }
@@ -197,7 +204,7 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (error) {
-    console.error("Link delete error:", error);
+    logQueryError("Link delete error:", error);
     return apiError("SERVER_ERROR", "Could not delete the link.", 500);
   }
 }
