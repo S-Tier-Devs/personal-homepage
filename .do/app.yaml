@@ -56,9 +56,16 @@ services:
       # database user's password. Left empty here and set out of band, exactly
       # like SUPABASE_SERVICE_ROLE_KEY above - the same blanking warning applies.
       #
-      # Uses the cluster's PRIVATE hostname. The app and the cluster are both in
-      # nyc, so private traffic never leaves DigitalOcean's network; the public
-      # hostname would work but would egress needlessly.
+      # Uses the cluster's PUBLIC hostname. This is NOT an oversight, and the
+      # private hostname is a trap that already broke production once
+      # (2026-07-30, ~15 min): App Platform apps are not attached to the
+      # Managed Postgres cluster's VPC unless explicitly configured, so
+      # private-apps-pg-... is unroutable from here and every query waits out
+      # the driver's connect timeout before failing with CONNECT_TIMEOUT. The
+      # failure mode is slowness plus "could not be loaded" cards, not a clean
+      # outage, and the public one-pager keeps serving so uptime looks green.
+      # The public endpoint is safe: sslmode=require encrypts in transit and the
+      # cluster's trusted sources admit only this app and one workstation IP.
       #
       # RUN_TIME, not BUILD_TIME: nothing connects at build or import time.
       # lib/db/client.ts's getDb() is lazy precisely so `npm run build` succeeds
