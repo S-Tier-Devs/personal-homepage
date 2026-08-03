@@ -1,0 +1,30 @@
+{
+  "//": "Committed, curated project permissions — safe for ANY contributor on ANY machine. DigitalOcean rules come from the provider-digitalocean pack and are read-only: `doctl apps create-deployment` and `doctl apps update` are deliberately absent because they deploy. Machine-specific and one-off approvals accrete in gitignored settings.local.json; when a local rule proves generally safe, promote it here. NEVER add wildcard 'git *' (includes push --force), 'rm *', or rules containing one-off commit messages.",
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npm ci)",
+      "Bash(npm test *)",
+      "Bash(npm run *)",
+      "Bash(npx tsc *)",
+      "Bash(npx vitest *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git branch --show-current)",
+      "Bash(git add *)",
+      "Bash(git checkout -b *)",
+      "Bash(git switch *)",
+      "Bash(git worktree *)",
+      "Bash(gh pr *)",
+      "Bash(gh run *)",
+      "Bash(gh issue *)",
+      "Bash(doctl apps list *)",
+      "Bash(doctl apps get *)",
+      "Bash(doctl apps logs *)",
+      "Bash(doctl apps spec get *)",
+      "Bash(doctl databases list *)",
+      "Bash(doctl databases get *)"
+    ]
+  }
+}
