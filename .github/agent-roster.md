@@ -1,4 +1,10 @@
-# Agents — personal-homepage
+# Agent roster — personal-homepage
+
+<!-- Renamed from .github/AGENTS.md so it stops colliding with the canonical
+/AGENTS.md at the repo root, which is the single source of truth for project context,
+commands, workflow, invariants, and gotchas. This file is narrower: which agent to
+pick, what each may do, and how they hand off. It carries no project rules — if a rule
+belongs anywhere, it belongs in /AGENTS.md. -->
 
 ## Available Agents
 
@@ -16,7 +22,8 @@
 | Planning a phase or approach | Default (plan mode) |
 | Reviewing code for bugs/risks | Default with code-review.prompt.md |
 | Running a migration | Default with migration.prompt.md |
-| Bootstrapping a new module | Default with project-bootstrap/SKILL.md |
+| Reproducing this project's setup | Default with skills/project-setup/SKILL.md |
+| Stamping the agent-instructions kit onto a repo | the global `project-bootstrap` skill |
 | Security pass | Default with security-hardening/SKILL.md |
 | Pre-release check | Default with release-readiness/SKILL.md |
 

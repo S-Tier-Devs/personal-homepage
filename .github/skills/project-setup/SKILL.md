@@ -1,9 +1,18 @@
 ---
-name: project-bootstrap
-description: Use when initializing a new project module or service from scratch — repo scaffold, env config, CI baseline, and docs setup. Trigger phrases: bootstrap, new project, initialize project, scaffold.
+name: project-setup
+description: Reproduce THIS project's setup from scratch — repo scaffold, Supabase auth wiring, env config, DigitalOcean spec, CI baseline. Use when rebuilding personal-homepage's environment or standing up a comparable module. Trigger phrases: project setup, reproduce setup, rebuild environment, auth wiring.
 ---
 
-# Project Bootstrap Skill
+# Project Setup — personal-homepage
+
+<!-- Renamed from `project-bootstrap` to stop colliding with the ai-standards kit
+skill of that name, which is installed globally at ~/.claude/skills/project-bootstrap
+and stamps the generic kit onto ANY repo. This one is different in kind: it is this
+project's own setup runbook, and Stage 3.5 in particular carries auth wiring that
+exists nowhere else. Do not merge the two. -->
+
+Reproduces this project's environment. For stamping the generic agent-instructions kit
+onto a repo, use the global `project-bootstrap` skill instead.
 
 ## Use When
 - Starting a new project or adding a major new service/module
@@ -43,7 +52,7 @@ Email + password, with magic link as a backup. There is no OAuth provider — se
 - [ ] Create the admin user in Studio with **"Auto Confirm User" checked**. An unconfirmed address fails as `email_not_confirmed`, which the login form deliberately reports as the generic "Invalid email or password" — so check the Supabase auth logs, not the UI
 - [ ] Add that address to `public.admin_users`. `is_admin()` matches on **email**, not user id, so no id linkage is required
 - [ ] Leave session timebox and inactivity timeout **OFF** — this is what makes sessions last indefinitely per device
-- [ ] Add `/auth/confirm` to the redirect allowlist for local **and** production (needed for magic link only; password sign-in uses no redirect). App Platform creates no preview environments of its own. Vercel previews still appear on PRs while that project is kept as the rollback path, so a magic link tested on a preview URL needs that host allowlisted too
+- [ ] Add `/auth/confirm` to the redirect allowlist for local **and** production (needed for magic link only; password sign-in uses no redirect). App Platform creates no preview environments of its own, and the Vercel project was deleted 2026-07-27 — there are no preview URLs at all now, so only local and production hosts need allowlisting
 - [ ] Run one password sign-in and one magic-link sign-in end to end
 
 ### Stage 4 — AI Docs
@@ -70,7 +79,7 @@ Email + password, with magic link as a backup. There is no OAuth provider — se
 ## Verification Checklist
 - [ ] `npm run lint` passes
 - [ ] `npm run build` passes
-- [ ] No secrets in git history (`git log --all -p | Select-String "ghp_|sk_|secret"`)
+- [ ] No secrets in git history (`git log --all -p | grep -nE "ghp_|sk_|secret"`)
 - [ ] DigitalOcean App Platform auto-deploys `main` on merge (`deploy_on_push: true` in `.do/app.yaml`)
 - [ ] Supabase migration dry run reports expected SQL before apply and "up to date" after apply
 
