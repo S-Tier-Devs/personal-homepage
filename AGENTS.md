@@ -4,73 +4,143 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
-The repo runs **Next.js 16** and **Tailwind CSS v4**. Both differ from what you likely remember. Route handler signatures, `params`, and CSS layering are the usual places this bites.
+<!-- ============================================================
+CANONICAL AGENT INSTRUCTIONS — tool-neutral.
+CLAUDE.md contains `@AGENTS.md`; .github/copilot-instructions.md points here.
+Edit THIS file, never the pointers.
 
-## Architecture
+SIZE BUDGET: ~150 lines. This file loads on EVERY agent session.
+The test for any addition: does it describe HOW TO WORK HERE?
+  - "How to work here" (commands, conventions, invariants, gotchas) → belongs here
+  - "What was built" (feature detail, spec history, endpoint catalogs) → belongs in
+    docs/ARCHITECTURE.md or a dated spec in docs/superpowers/specs/ — link it instead
+If a section grows past ~25 lines, extract to docs/ and leave a pointer.
+============================================================ -->
 
-Public one-pager at `/`, private dashboard at `/dashboard`. See `README.md` for the data model and auth design.
+## Project
 
-**The backend is mid-migration off Supabase onto DigitalOcean.** As of 2026-07-30, Phase 1 has shipped:
+personal-homepage is a public one-pager at `/` plus a private admin dashboard at
+`/dashboard`, on **Next.js 16** and **Tailwind CSS v4** — both differ from what you
+likely remember. Route handler signatures, `params`, and CSS layering are the usual
+places this bites. The backend is mid-migration off Supabase onto DigitalOcean.
 
-- **Data lives in DigitalOcean Managed Postgres**, database `homepage` on the shared `apps-pg` cluster (which also hosts `gsd`), reached through Drizzle ORM over the `postgres` driver. `lib/db/schema.ts` is the schema, `lib/db/client.ts` the handle, `drizzle/` the committed migrations, `npm run db:generate` / `npm run db:migrate` the workflow. **There is no RLS** — `requireAdminAuth` is the single authorization choke point, deliberately (spec `docs/superpowers/specs/2026-07-29-supabase-to-digitalocean-phase-1-data-design.md`).
-- **Supabase still provides auth** (session verification via `@supabase/ssr` + local JWKS) **and storage bytes** for Documents. Both move in later phases. Files routes are deliberately dual-client: metadata through Drizzle, bytes through Supabase.
-- Supabase's Postgres is retained as the rollback target, frozen at cutover copy time, until the auth phase lands.
+Living docs: `docs/ARCHITECTURE.md` (system map, deploy detail, migration state — read
+before architectural decisions), `docs/FEATURES.md` (backlog + shipped record),
+`docs/ROADMAP.md`, `CHANGELOG.md`, `docs/ai/backlog.md` (long-form deferred work).
+Specs and plans: `docs/superpowers/specs/`, `docs/superpowers/plans/`. Workflow and
+onboarding: `docs/CONTRIBUTING.md` — see its **docs-ownership table** for which file
+to update when.
 
-**`design/patrick-beasley.dc.html` is the behavioural spec.** Cite its line numbers; do not paraphrase it from memory.
+## Commands
+
+    npm install
+    npm run dev                         # Next dev server on :3000
+    npm run lint                        # eslint
+    npx tsc --noEmit                    # typecheck (no npm script)
+    npm test                            # vitest run
+    npm run build                       # next build
+    npm run db:generate                 # drizzle-kit generate (reads .env.local)
+    npm run db:migrate                  # drizzle-kit migrate  (reads .env.local)
+
+Both db scripts read `.env.local` via `node --env-file`, not `.env`.
+
+## Workflow (repo convention — all contributors and their agents)
+
+<!-- STANDARD BLOCK — keep identical across repos. Update the master in
+ai-standards/templates/AGENTS.md first, then sync outward. -->
+
+- New feature/change → superpowers:brainstorming → spec → superpowers:writing-plans
+  → plan → **superpowers:subagent-driven-development** to execute. Do not implement
+  plan tasks inline.
+- **UI designs get a visual mockup before the spec is finalized:** when a design adds
+  or reshapes a page, publish a self-contained HTML mockup (representative data
+  clearly labeled as mock) and get sign-off on it as part of the brainstorm — the
+  approved mockup is referenced in the spec.
+- Model selection — session (main loop), in tiers so it survives model releases:
+  brainstorming, spec writing, and plan writing run on the most capable model;
+  subagent orchestration (executing the plan via subagent-driven-development)
+  likewise. Switch sessions/models at the plan→execution handoff.
+- Model selection — subagent dispatch: cheapest tier when the plan contains the
+  complete code (transcription); mid-tier for integration/real-run tasks and all
+  reviewers; most capable model for the final whole-branch review. Always specify
+  the model explicitly on dispatch.
+- After all tasks: final whole-branch review with the accumulated Minor-findings
+  list for triage → ONE fix subagent → superpowers:finishing-a-development-branch.
+- A feature isn't finished until its `docs/FEATURES.md` row exists and sits
+  in **Shipped** with the version. Fresh sessions learn what's built by
+  reading that table — a stale table recreates the re-explaining problem.
+- Feature branches (`feat/<name>`), never implement on main. The SDD ledger
+  (`.superpowers/sdd/progress.md`) survives compaction — trust it and `git log`
+  over recollection.
+- **Finish by pushing and opening a PR** (`gh pr create`); merge after the CI gate
+  is green.
+
+## Local environment
+
+- Node with `--env-file` support. `.env.local` carries the DB vars the drizzle scripts
+  read; `.env.example` is the committed contract.
+- `DATABASE_URL` points at DigitalOcean Managed Postgres over the **public** hostname
+  with `sslmode=require` — see Deploy target. There is no local Postgres container.
+- Parallel agent instances must NOT share a checkout or a database — use separate
+  worktrees, and do not point two instances at the same `homepage` database.
 
 ## Deploy target
 
-DigitalOcean App Platform, app `personal-homepage`, region `nyc`. `.do/app.yaml` is the source of truth for the app spec - **never edit the app in the DO web console**, or the console and the spec drift. Production deploys from `main` on merge (`deploy_on_push: true`).
+- Deploy target: **DigitalOcean App Platform** (`provider-digitalocean` pack; app
+  `personal-homepage`, region `nyc`). Infra map, env-var inventory, and the migration
+  leftovers are in `docs/ARCHITECTURE.md` → Deployment.
+- `.do/app.yaml` is the source of truth for *review* — **never edit the app in the DO
+  web console**, or console and spec drift. Production deploys from `main` on merge
+  (`deploy_on_push: true`); routine code changes need no spec work.
+- **Never apply the committed spec directly.** Two values are deliberately blank and
+  applying the file overwrites the live ones with empty, silently. Edit the live spec
+  (`doctl apps spec get`), `doctl apps propose` as a dry run, then update — full
+  procedure in `docs/ARCHITECTURE.md`.
+- **Use the public database hostname, not the private one.** App Platform is not on
+  the cluster's VPC, so `private-apps-pg-...` is unroutable: every query waits out the
+  driver's connect timeout and fails `CONNECT_TIMEOUT`. This broke production for ~15
+  minutes and presented as extreme slowness, not an outage — the public one-pager
+  stayed fine so uptime checks were green. `requireAdminAuth` calls `getDb()` on every
+  successful auth, so *every* admin route depends on it at request time.
 
-`DATABASE_URL` was added 2026-07-30 for the Postgres migration: `RUN_TIME`, `type: SECRET`, blank in the committed spec, using the cluster's **PUBLIC** hostname.
+## Auth
 
-**Use the public database hostname, not the private one — this broke production for ~15 minutes.** App Platform apps are not attached to the Managed Postgres cluster's VPC unless you explicitly configure it, so `private-apps-pg-...` is unroutable from the app: every query waited out the driver's connect timeout and then failed with `CONNECT_TIMEOUT`. The symptom was not an outage but *extreme slowness* on every authenticated page plus "could not be loaded" cards, because each request hung for the full timeout before erroring — and the public one-pager stayed fine, so uptime checks were green throughout. The private host looks obviously correct on a shared-region cluster and is a trap. The public endpoint is safe here: `sslmode=require` encrypts in transit and the cluster's trusted-sources list admits only this app (`app:` rule) and the workstation IP. The sibling `gsd` app on the same cluster uses the public host for the same reason. It is load-bearing in an order-dependent way — `requireAdminAuth` calls `getDb()` on every successful auth, so *every* admin route depends on it at request time, not just data routes. It must exist in the live spec before any deploy of the Drizzle code.
+- Auth: **T0 personal** (tier per the `standards-auth` skill) — a single admin
+  identified by `ADMIN_EMAIL`, pattern: platform auth (Supabase session verification
+  via `@supabase/ssr` + local JWKS). Load `standards-auth` before touching auth code.
+- `requireAdminAuth(request)` is the single authorization choke point — there is **no
+  RLS** on the DigitalOcean database, deliberately. Weakening it has no second line of
+  defence behind it.
+- Auth moves off Supabase in a later migration phase. A tier change is a
+  decision-record event.
 
-The spec otherwise declares four env vars: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` at `BUILD_TIME` (Next.js inlines `NEXT_PUBLIC_*` at build time), plus `SUPABASE_SERVICE_ROLE_KEY` and `ADMIN_EMAIL` at `RUN_TIME`. Only `SUPABASE_SERVICE_ROLE_KEY` is a secret: it bypasses RLS, so it is `type: SECRET`, empty in the committed spec, and set out of band. `ADMIN_EMAIL` is a plain spec value; it is the contact address this site publishes and is only compared against an already-authenticated session, so it is not sensitive and belongs in the spec so the app is reproducible from it.
+## Invariants
 
-### Never apply the committed spec directly
-
-`.do/app.yaml` is the source of truth for *review*, but **two of its values are deliberately blank and applying the file overwrites the live ones with empty**. Verified, not assumed: `doctl apps propose --app <id> --spec .do/app.yaml` returns a 63-character `EV[...]` blob for `SUPABASE_SERVICE_ROLE_KEY` where the real value is ~355. App Platform encrypts the empty string and stores it, so the dashboard shows a populated-looking secret and every health check stays green while admin requests throw.
-
-To change the app config, edit the **live** spec rather than the committed one:
-
-```bash
-doctl apps spec get <app-id> > /tmp/live.yaml   # carries real values
-# edit /tmp/live.yaml
-doctl apps propose --app <app-id> --spec /tmp/live.yaml --output json   # dry run, check envs
-doctl apps update <app-id> --spec /tmp/live.yaml
-```
-
-Then mirror the structural change back into `.do/app.yaml`, keeping the blank values blank. `doctl apps propose` is non-destructive and is the right way to check any spec change before applying it.
-
-Routine code changes need none of this: `deploy_on_push` rebuilds from `main` and does **not** apply the repo spec.
-
-### Migration leftovers (moved off Vercel 2026-07-26)
-
-True now, and not visible from the code:
-
-- **`www.patrickbeasley.com` is canonical and the apex redirect lives in the app spec, not DNS.** App Platform ALIAS domains *serve* rather than redirect, unlike Vercel, so the apex-to-www 308 is an `ingress` rule in `.do/app.yaml`. Nothing in DNS reveals it. Recreate the app from a spec lacking that rule and both hosts start serving identical content, breaking the canonical assumption `getSiteUrl()` in `lib/env.ts` depends on for magic-link redirects.
-- **A new subdomain will NOT reach this app, and there is no Vercel fallback behind it any more.** `*.patrickbeasley.com` no longer points at Vercel — the wildcard CNAME was deleted 2026-07-27 and `anything.patrickbeasley.com` is now NXDOMAIN. Only the apex and `www` are on DO. A real subdomain needs adding to the app spec *and* an explicit Cloudflare record.
-- **The Vercel project no longer exists.** It was deleted 2026-07-27. Pushes no longer trigger Vercel builds and PRs no longer get a Vercel preview URL.
-- **`disable_email_obfuscation: true` is load-bearing.** App Platform fronts with Cloudflare, which otherwise rewrites the contact `mailto:` into `/cdn-cgi/l/email-protection`. Removing the flag silently breaks the site's primary call to action for JavaScript-disabled visitors. Note the flag only takes effect on the deployment *after* the one that sets it.
-- **CAA records restrict issuance** to `pki.goog`, `sectigo.com`, `letsencrypt.org`. App Platform issues via Google Trust Services (`pki.goog`) - that is why new hostnames work, and narrowing CAA would break them silently.
-- Supabase is unchanged and the domain did not change, so the auth redirect allowlist needed no edit.
-
-**The Vercel rollback was removed 2026-07-27** (wildcard CNAME and the `personal-homepage` Vercel project both deleted), so there is no DNS flip that restores service any more. If App Platform ever needs to be abandoned, recovery is a **redeploy of this repo onto App Platform** (or a new host) from `main`, not a DNS change — the site is reproducible from source, not from a standby deployment. The domain registration itself is unaffected by any of this and is still held at Vercel; see the registrar notes in the migration repo for that separate, ongoing thread.
+- `requireAdminAuth(request)` is the **first** statement of every route handler —
+  before `params` is awaited and before the body is read.
+- **There is no RLS.** Authorization is application-level only; every data path must
+  route through `requireAdminAuth`.
+- **Never log a raw query error or its wrapper message.** `DrizzleQueryError` puts
+  parameter *values* in `message` — it leaked the GSD API key once. Use
+  `logQueryError`, which logs the label, the unwrapped SQLSTATE, and the cause's
+  message.
+- **Never revoke `EXECUTE` on `public.is_admin()`.** RLS policy expressions run in the
+  *querying* role's security context, so revoking breaks every admin query. The
+  `PUBLIC` grant hides behind a bare `=X` in `proacl`, so a `has_function_privilege`
+  check filtered over `pg_roles` will not see it.
+- **Workspace scoping is not uniform.** Links and Notes filter by the active
+  workspace; **Documents and Settings do not**. Pattern-matching on Links and adding
+  `useWorkspace()` filtering silently builds the wrong thing.
+- `design/patrick-beasley.dc.html` is the behavioural spec for the public page. Cite
+  its line numbers; do not paraphrase from memory.
 
 ## Binding conventions
 
-`components/dashboard/links/` and `app/api/links/` are the reference implementation. Mirror them rather than inventing a new shape.
-
-**Wire format.** Failures are `{ error: "MACHINE_CODE", message: "human text" }` via `apiError()`. Successes return the bare entity for create (201) and update (200), `{ ok: true }` for delete, and one named collection key for lists (`{ links }`, `{ notes }`).
-
-**Handlers.** `requireAdminAuth(request)` is the *first* statement of every route handler — before `params` is awaited and before the body is read. Params are `{ params: Promise<{ id: string }> }`, then `const { id } = await params`. Guard `[id]` with `isUuid` so a malformed id is a 404, not a Postgres `22P02` surfacing as a 500.
-
-**Pages.** Server page fetches, then hands plain arrays to a `"use client"` view. No data-fetching library. No `useEffect` state synchronisation — derive from props each render. Optimistic updates use plain `useState` plus a rollback closure.
-
-**Every dashboard section is dynamic (per-request fetch), so it needs a `loading.tsx`.** Without a Suspense boundary in the segment, the App Router cannot prefetch the dynamic page and a client-side navigation blocks on that fetch showing *no* pending UI — the section you are leaving sits frozen until the data resolves, which reads as intermittent lag. `app/dashboard/loading.tsx` gives every section one instant, prefetched skeleton; keep it, and shape any new skeleton like the real card (and its fill-height) so the swap is a fill, not a jump. `loading.tsx` covers the *page* fetch, not the cookie-reading layout — that is exactly the sibling-navigation cost. A page whose data is a slow *external* call (Tasks → Project-GSD) should additionally stream that call behind its own `<Suspense>`, so the navigation itself stays instant and only the list area shows the fallback.
-
-**Workspace scoping.** Links and Notes filter by the active workspace. **Documents and Settings do not.** This is the single most common mistake here: an agent pattern-matching on Links adds `useWorkspace()` filtering and silently builds the wrong thing.
+`components/dashboard/links/` and `app/api/links/` are the reference implementation.
+Mirror them rather than inventing a new shape. The full conventions — wire format,
+handler order, page/data shape, and the `loading.tsx` requirement for every dynamic
+dashboard section — are in `docs/ARCHITECTURE.md` → Binding conventions. Read them
+before writing a route or a section.
 
 ## Gotchas that have already cost time
 
@@ -89,11 +159,9 @@ promoted to the personal global file instead — see the promotion rule's last r
 
 **The dev CSP needs `'unsafe-eval'`; production must not have it.** React uses `eval()` in development. `next.config.ts` gates it on `NODE_ENV`.
 
-**Never revoke `EXECUTE` on `public.is_admin()`.** RLS policy expressions run in the *querying* role's security context, so revoking breaks every admin query. The `PUBLIC` grant also hides behind a bare `=X` in `proacl`, so a `has_function_privilege` check filtered over `pg_roles` will not see it.
-
 **Drizzle silently overwrites postgres.js type parsers, and it cost most of a day.** `drizzle-orm/postgres-js`'s `construct()` replaces `client.options.parsers` for every temporal OID (1184, 1114, 1082, and more) with a transparent `(val) => val` at construction time. So `postgres(url, { types })` is *declared* and then discarded: the config on the `postgres()` call has no effect on anything routed through the Drizzle handle. `lib/db/client.ts` re-asserts the parsers **after** `drizzle()` returns; deleting that loop turns `lib/db/client.test.ts` red. This matters because PostgREST returned timestamps as ISO 8601 (`...T...+00:00`) while postgres.js's native text is `... ...+00`, and `formatDate()` silently renders `—` when `new Date()` yields `NaN` — V8 tolerates the non-ISO form, other engines need not. **Verify any change here through an actual Drizzle handle, never through a bare `postgres()` client** — a probe against a raw client "passed" while production was broken, and that false green survived a review. If you upgrade `drizzle-orm`, re-run that through-the-handle probe.
 
-**`DrizzleQueryError` has no `.code` and puts parameter *values* in its `message`.** Drizzle wraps every query error, so `error.code` is `undefined` where PostgREST gave you a SQLSTATE — read it off `error.cause` instead (`postgresErrorCode` in `lib/dashboard/api.ts` does). Two consequences bit at once: every `23505`/`23503` → 409 mapping silently stopped firing and returned 500s, and logging `error.message` leaked query parameters — including the GSD API key on the `gsd_config` write path. **Never log a raw query error or its wrapper message**; use `logQueryError`, which logs the label, the unwrapped SQLSTATE, and the *cause's* message.
+**`DrizzleQueryError` has no `.code`.** Drizzle wraps every query error, so `error.code` is `undefined` where PostgREST gave you a SQLSTATE — read it off `error.cause` instead (`postgresErrorCode` in `lib/dashboard/api.ts` does). Every `23505`/`23503` → 409 mapping silently stopped firing and returned 500s until this was found. (The logging half of this is an invariant above.)
 
 **Storage objects need their own policy.** RLS on `storage.objects` is separate from the `files_metadata` table. `createSignedUrl()` requires `select`, so an insert/delete-only policy breaks downloads.
 
