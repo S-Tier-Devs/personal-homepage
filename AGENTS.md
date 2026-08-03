@@ -74,6 +74,11 @@ True now, and not visible from the code:
 
 ## Gotchas that have already cost time
 
+<!-- Promotion target for docs/ai/lessons-learned.md (see its promotion rule).
+Mechanism-level entries only: what breaks, WHY it breaks, and the rule.
+Repo-specific lessons only. A lesson that would bite any project on any stack is
+promoted to the personal global file instead — see the promotion rule's last route. -->
+
 **`NEXT_PUBLIC_*` must be read statically.** Next inlines them into the client bundle by literal text replacement. `process.env[name]` is never inlined and is `undefined` in the browser — while working perfectly on the server, so API routes keep returning correct responses and mislead you. Write `process.env.NEXT_PUBLIC_FOO` literally.
 
 **Tailwind v4 utilities beat `@layer base`** regardless of specificity. A `text-*` utility overrides a base `a:hover` rule.
