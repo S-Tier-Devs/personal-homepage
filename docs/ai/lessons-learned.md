@@ -42,7 +42,7 @@ session.
 **What failed**: Initial PAT was missing `read:org` scope — required regeneration  
 **Root cause**: GitHub CLI requires `read:org` scope even for personal account operations  
 **Reusable rule**: When generating a GitHub PAT for `gh` CLI, always include `repo`, `workflow`, `read:org`, and `project` scopes  
-**Action to encode**: Add scope checklist to `project-bootstrap/SKILL.md` Stage 1
+**Action to encode**: Add scope checklist to `.github/skills/project-setup/SKILL.md` Stage 1 (that skill was named `project-bootstrap` when this entry was written)
 
 ## 2026-03-30 — Bootstrap Credential Hygiene
 **Phase/Context**: Resume after initial scaffold and GitHub setup  
