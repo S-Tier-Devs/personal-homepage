@@ -3,26 +3,11 @@
 import { useId, useState } from "react";
 
 import { useToast } from "@/components/dashboard/toast";
+import { readApiError } from "@/lib/dashboard/read-api-error";
 import type { ApiTokenMeta } from "@/lib/blog/types";
 
 /** POST /api/api-tokens response: metadata plus the once-only token value. */
 type CreatedToken = ApiTokenMeta & { token: string };
-
-async function readApiError(response: Response, fallback: string): Promise<string> {
-  try {
-    const body: unknown = await response.json();
-
-    if (typeof body === "object" && body !== null) {
-      const { message, error } = body as { message?: unknown; error?: unknown };
-      if (typeof message === "string" && message) return message;
-      if (typeof error === "string" && error) return error;
-    }
-  } catch {
-    // Non-JSON error bodies fall through to the fallback.
-  }
-
-  return fallback;
-}
 
 function formatWhen(value: string | null): string {
   if (!value) return "never";
