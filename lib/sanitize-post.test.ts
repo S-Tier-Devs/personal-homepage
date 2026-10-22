@@ -59,6 +59,24 @@ describe("sanitizePostHtml — href", () => {
       sanitizePostHtml('<a href="/x" onclick="evil()" style="x" data-y="z">t</a>', opts)
     ).toBe('<a href="/x" rel="noopener noreferrer">t</a>');
   });
+
+  // Regression: the PARSED href can resolve to the right origin while its
+  // re-SERIALIZED pathname collapses "/.." or "/." into the protocol-relative
+  // "//evil.com", which a second resolution sends off-site. Validating the
+  // parsed URL object (as sanitizeHref originally did) misses this — only a
+  // round-trip over the EMITTED string catches it. "&#47;" is an HTML entity
+  // for "/", decoded before validation, so "/..&#47;/evil.com" reduces to
+  // "/..//evil.com" by the time sanitizeHref sees it.
+  it.each([
+    "/..//evil.com",
+    "/.//evil.com",
+    "/%2e%2e//evil.com",
+    "/..&#47;/evil.com",
+  ])("drops the normalization-smuggled href %s but keeps the anchor text", (href) => {
+    expect(sanitizePostHtml(`<a href="${href}">t</a>`, opts)).toBe(
+      '<a rel="noopener noreferrer">t</a>'
+    );
+  });
 });
 
 describe("sanitizePostHtml — img", () => {
@@ -109,6 +127,19 @@ describe("sanitizePostHtml — idempotence", () => {
     ].join("");
     const once = sanitizePostHtml(input, opts);
 
+    expect(sanitizePostHtml(once, opts)).toBe(once);
+  });
+
+  // Regression: before the round-trip fix, a normalization-smuggled href
+  // survived the first pass as a live "//evil.com" link, then got stripped
+  // on the second pass once the parser saw the now-literal "//evil.com" — a
+  // second sanitize producing different, *more* dangerous output than the
+  // first is an idempotence break, not just a one-off escape.
+  it("sanitizing twice equals sanitizing once for a normalization-smuggled href", () => {
+    const input = '<a href="/..//evil.com">l</a>';
+    const once = sanitizePostHtml(input, opts);
+
+    expect(once).toBe('<a rel="noopener noreferrer">l</a>');
     expect(sanitizePostHtml(once, opts)).toBe(once);
   });
 });

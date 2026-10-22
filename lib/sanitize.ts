@@ -498,10 +498,16 @@ function sanitizeHref(raw: string): { value: string; external: boolean } | null 
 
   if (resolved.origin !== base) return null;
 
-  return {
-    value: resolved.pathname + resolved.search + resolved.hash,
-    external: false,
-  };
+  const emitted = resolved.pathname + resolved.search + resolved.hash;
+
+  // The serialized form must itself resolve back to base: "/..//evil.com"
+  // normalizes to the protocol-relative "//evil.com", which does not — the
+  // parsed `resolved` object looked safe, but re-serializing it produced a
+  // different, unsafe string. Round-trip the EMITTED value, not the parsed
+  // one.
+  if (new URL(emitted, base).origin !== base) return null;
+
+  return { value: emitted, external: false };
 }
 
 const DIMENSION_PATTERN = /^\d{1,5}$/;
