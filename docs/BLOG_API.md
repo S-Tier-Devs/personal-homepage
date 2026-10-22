@@ -48,6 +48,7 @@ on PATCH), `INVALID_SLUG`, `SLUG_TAKEN` (409),
   `published_at`; the post goes live by itself within ~5 minutes of that time.
 - `published_at` — ISO 8601. On publish: an explicit value wins; otherwise an
   existing value is KEPT; only a null one defaults to now. Unpublishing keeps it.
+  Sending `published_at: null` is ignored — the field cannot be cleared.
 - Read-only: `reading_minutes`, `created_by`, `updated_by`, timestamps.
 
 ## Concurrency — send `if_updated_at`

@@ -168,3 +168,60 @@ no functional breakage).
 **Trigger:** worth building once orphaned storage volume/cost is noticeable; a sweep
 job (list images referenced by live `content_html`, delete the rest) is the
 straightforward shape.
+
+---
+
+## Header nav overflow at narrow viewports
+
+**Date added:** 2026-10-22
+**Priority:** Low (pre-existing, slightly worsened)
+**Origin:** F-013 final whole-branch review.
+
+**Problem.** The header nav overflows at viewports of roughly ≤400px. This predates
+F-013 (it already happens on `main` with 3 links) and is only marginally worse now
+that the blog nav link brings the count to 4. Gap/spacing tweaks are not the fix —
+it needs a real responsive treatment (e.g., a collapse to a menu button below a
+breakpoint).
+
+**Trigger:** worth fixing opportunistically, or whenever another nav-link addition
+makes the overflow more noticeable.
+
+---
+
+## Blog v1 §Out catch-all: comments, newsletter/search/cover images/per-post OG
+
+**Date added:** 2026-10-22
+**Priority:** Low (explicitly deferred, v1 cut)
+**Origin:** `docs/superpowers/specs/2026-10-22-blog-design.md` §Out — F-013 blog design.
+
+**Problem.** The spec's §Out section explicitly excludes several features from v1
+that are not yet separately ledgered here: comments, a newsletter/email digest,
+full-text search over post bodies, cover images, and per-post OG image generation.
+
+**Trigger:** each is its own future feature/brainstorm — build only on demand, not
+speculatively.
+
+---
+
+## Blog v1 polish
+
+**Date added:** 2026-10-22
+**Priority:** Low (polish, non-blocking)
+**Origin:** F-013 final whole-branch review.
+
+**Problem.** Several small rough edges noted during final review, none blocking v1:
+- The tags input's client-side normalisation (lowercase + hyphenate on blur) is
+  weaker than the server's `normalizeTags` — they can disagree at the edges.
+- The slug field autosaves mid-typing, so a trailing-hyphen slug can hit the server
+  mid-edit and 409/toast before the user finishes typing.
+- Publishing with an already-set `published_at` can record a spurious
+  "published_at changed" event: the value round-trips through the database with
+  microsecond truncation, so the echoed value differs from the sent value by less
+  than a millisecond and still reads as a change.
+- A live post's excerpt can be emptied via PATCH — `EXCERPT_REQUIRED` only guards
+  the draft→published transition, not an edit to an already-published post.
+- Concurrent double-DELETE on the same post returns a foreign-key 500 instead of a
+  404 for the second request.
+
+**Trigger:** batch these into a small follow-up pass once there's a reason to touch
+this area again, or on the next blog-focused session.
