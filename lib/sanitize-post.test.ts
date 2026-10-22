@@ -1,0 +1,114 @@
+import { describe, expect, it } from "vitest";
+
+import { sanitizePostHtml } from "./sanitize";
+
+const CDN = "https://pb-public-media.nyc3.cdn.digitaloceanspaces.com";
+const opts = { mediaOrigin: CDN };
+
+describe("sanitizePostHtml — tags", () => {
+  it("keeps the post subset and drops everything else, keeping text", () => {
+    expect(
+      sanitizePostHtml(
+        "<h2>Title</h2><blockquote><p>q</p></blockquote><pre><code>x=1</code></pre><hr><div>text</div>",
+        opts
+      )
+    ).toBe("<h2>Title</h2><blockquote><p>q</p></blockquote><pre><code>x=1</code></pre><hr>text");
+  });
+
+  it("still discards script/style contents entirely", () => {
+    expect(sanitizePostHtml("<p>a</p><script>alert(1)</script>", opts)).toBe("<p>a</p>");
+  });
+});
+
+describe("sanitizePostHtml — href", () => {
+  it("keeps https links, adding rel and target", () => {
+    expect(sanitizePostHtml('<a href="https://example.com/x">t</a>', opts)).toBe(
+      '<a href="https://example.com/x" rel="noopener noreferrer" target="_blank">t</a>'
+    );
+  });
+
+  it("keeps mailto links", () => {
+    expect(sanitizePostHtml('<a href="mailto:a@b.c">m</a>', opts)).toBe(
+      '<a href="mailto:a@b.c" rel="noopener noreferrer" target="_blank">m</a>'
+    );
+  });
+
+  it("keeps root-relative paths without target", () => {
+    expect(sanitizePostHtml('<a href="/projects?x=1#y">p</a>', opts)).toBe(
+      '<a href="/projects?x=1#y" rel="noopener noreferrer">p</a>'
+    );
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "JAVASCRIPT:alert(1)",
+    "data:text/html,x",
+    "//evil.com/x",
+    "/\\evil.com",
+    "&#106;avascript:alert(1)",
+    "jav&#x61;script:alert(1)",
+    "ftp://evil.com",
+  ])("drops dangerous href %s but keeps the anchor text", (href) => {
+    expect(sanitizePostHtml(`<a href="${href}">t</a>`, opts)).toBe(
+      '<a rel="noopener noreferrer">t</a>'
+    );
+  });
+
+  it("drops event handlers and unknown attributes", () => {
+    expect(
+      sanitizePostHtml('<a href="/x" onclick="evil()" style="x" data-y="z">t</a>', opts)
+    ).toBe('<a href="/x" rel="noopener noreferrer">t</a>');
+  });
+});
+
+describe("sanitizePostHtml — img", () => {
+  it("keeps on-CDN images with alt, width, height", () => {
+    expect(
+      sanitizePostHtml(`<img src="${CDN}/blog/2026/10/a.png" alt="A &quot;b&quot;" width="800" height="600">`, opts)
+    ).toBe(
+      `<img src="${CDN}/blog/2026/10/a.png" alt="A &quot;b&quot;" width="800" height="600">`
+    );
+  });
+
+  it("drops the whole element for off-origin src", () => {
+    expect(sanitizePostHtml('<p>x</p><img src="https://evil.com/p.png">', opts)).toBe(
+      "<p>x</p>"
+    );
+  });
+
+  it("drops the whole element when src is missing or unparseable", () => {
+    expect(sanitizePostHtml("<img alt='x'>", opts)).toBe("");
+  });
+
+  it("drops all images when no mediaOrigin is configured", () => {
+    expect(
+      sanitizePostHtml(`<img src="${CDN}/a.png">`, { mediaOrigin: null })
+    ).toBe("");
+  });
+
+  it("drops non-integer or out-of-range dimensions but keeps the image", () => {
+    expect(
+      sanitizePostHtml(`<img src="${CDN}/a.png" width="12px" height="99999">`, opts)
+    ).toBe(`<img src="${CDN}/a.png">`);
+  });
+
+  it("truncates alt to 300 chars", () => {
+    const alt = "a".repeat(400);
+    const out = sanitizePostHtml(`<img src="${CDN}/a.png" alt="${alt}">`, opts);
+
+    expect(out).toBe(`<img src="${CDN}/a.png" alt="${"a".repeat(300)}">`);
+  });
+});
+
+describe("sanitizePostHtml — idempotence", () => {
+  it("sanitizing twice equals sanitizing once", () => {
+    const input = [
+      '<h2>T</h2><p>a &amp; b</p><a href="https://x.y/z?a=1&b=2">l</a>',
+      `<img src="${CDN}/i.png" alt="q&quot;x" width="10" height="20">`,
+      "<ul><li>1</li></ul><pre><code>&lt;tag&gt;</code></pre>",
+    ].join("");
+    const once = sanitizePostHtml(input, opts);
+
+    expect(sanitizePostHtml(once, opts)).toBe(once);
+  });
+});
