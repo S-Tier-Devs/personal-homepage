@@ -156,15 +156,34 @@ This file tracks significant decisions made about AI workflows, tooling, and con
 **Follow-up tasks**: Set `httpOnly: true` on session cookies — nothing client-side reads them any more, so this is a free reduction in XSS blast radius. Clear the sticky `?error=1` / `?sent=1` params, which persist across a refresh where the old state-based form cleared them. Enforce that `lib/env.ts` stays server-only (needs the `server-only` package); nothing currently prevents a future `"use client"` import from silently re-inlining the anon key with every gate still green.
 
 ## 2026-10-22 — Second auth surface: blog API tokens
-
-**Decision:** add `requireBlogAuth` (session OR blog-scoped bearer token)
-beside `requireAdminAuth`, used only under `app/api/blog/**`.
-**Why:** F-013's primary authors are AI agents; they need credentials that are
-not the owner's session, are individually revocable, and are attributable in
-the activity log. Tier stays T0 personal — this adds machine credentials, not
-user accounts.
-**Shape:** `pbk_` + 32 random bytes base64url; SHA-256 at rest; soft revoke;
-`last_used_at` throttled to 1/min. No fallback from a present header to the
-session. No rate limiting (256-bit entropy) and no expiry (revocation + usage
-visibility) — stated decisions.
-**Blast radius:** enforced by `lib/auth/blog-guard-scope.test.ts`.
+**Status**: Active  
+**Context**: F-013's primary authors are AI agents, not the owner — they need
+credentials that are not the owner's session, are individually revocable, and
+are attributable in the activity log. Tier stays T0 personal (single human
+owner); this adds machine credentials, not user accounts.  
+**Decision**: Add `requireBlogAuth` (session OR blog-scoped bearer token)
+beside `requireAdminAuth`, used only under `app/api/blog/**`. Tokens are
+`pbk_` + 32 random bytes base64url, SHA-256-hashed at rest, soft-revoked
+(`revoked_at`, so events keep their reference), with `last_used_at` throttled
+to once per minute. If an `Authorization` header is present it must be a
+valid, unrevoked, `blog`-scoped token or the request is a 401 — it never
+falls back to the cookie session. No rate limiting (256-bit entropy makes
+online guessing infeasible) and no token expiry (instant revocation plus
+`last_used_at` visibility cover the risk at T0) — both stated decisions, not
+gaps.  
+**Alternatives considered**: A shared env-var secret (not revocable per-agent,
+no attribution in the activity log); Supabase service accounts (deepens the
+dependency this project is migrating off); finer per-verb scopes
+(`blog:read`, `blog:publish`) now (enforcement without a policy behind it —
+the owner decided agents may create, edit, delete and publish; the `scopes`
+array keeps finer grants additive later, not a migration).  
+**Consequences**: The second auth surface is confined to `app/api/blog/**` by
+construction and by test (`lib/auth/blog-guard-scope.test.ts` asserts only
+that tree imports `requireBlogAuth`); token routes (`/api/api-tokens/**`)
+stay on `requireAdminAuth`, so a token can't create, list, or revoke tokens.
+Compatible with migration Phase 3: the session half of the guard swaps from
+Supabase to opaque sessions; the token half is unaffected.  
+**Follow-up tasks**: Owner runs the infra checklist (Spaces bucket/key, env
+vars via the live-spec procedure) before agents can upload media. Verify
+revocation live: a revoked token's next request returns 401 (proves the SQL
+half of the guard, not just the code path).

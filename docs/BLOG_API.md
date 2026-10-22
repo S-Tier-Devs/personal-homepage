@@ -26,11 +26,15 @@ Tokens cannot manage tokens.
 | POST | `/api/blog/media` | Upload an image (multipart). |
 
 Errors are `{ "error": "CODE", "message": "human text" }`. Codes you must
-handle: `UNAUTHENTICATED` (401), `INVALID_SLUG`, `SLUG_TAKEN` (409),
+handle: `UNAUTHENTICATED` (401), `INVALID_BODY` (400 — malformed/non-object
+JSON, missing title, a bad `status` value or filter, or no updatable fields
+on PATCH), `INVALID_SLUG`, `SLUG_TAKEN` (409),
 `SLUG_LOCKED` (409 — live slug; unpublish first), `EXCERPT_REQUIRED`,
 `INVALID_TAGS`, `INVALID_DATE`, `INVALID_TITLE`, `INVALID_CONTENT`,
 `CONFLICT` (409 — stale `if_updated_at`; re-GET and retry),
-`INVALID_IMAGE_TYPE`, `IMAGE_TOO_LARGE`, `NOT_FOUND`, `SERVER_ERROR`.
+`INVALID_IMAGE_TYPE`, `IMAGE_TOO_LARGE`,
+`STORAGE_ERROR` (500 — media storage write failed; retry later),
+`NOT_FOUND`, `SERVER_ERROR`.
 
 ## Post fields
 
