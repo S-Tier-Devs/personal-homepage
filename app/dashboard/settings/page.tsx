@@ -1,11 +1,13 @@
-import { asc } from "drizzle-orm";
+import { asc, desc } from "drizzle-orm";
 import type { Metadata } from "next";
 
+import ApiTokensCard from "@/components/dashboard/settings/api-tokens-card";
 import GsdKeyCard from "@/components/dashboard/settings/gsd-key-card";
 import SettingsView from "@/components/dashboard/settings/settings-view";
+import type { ApiTokenMeta } from "@/lib/blog/types";
 import type { Category, GsdKeyStatus } from "@/lib/dashboard/types";
 import { getDb } from "@/lib/db/client";
-import { dashboardCategories, gsdConfig } from "@/lib/db/schema";
+import { apiTokens, dashboardCategories, gsdConfig } from "@/lib/db/schema";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -28,6 +30,17 @@ const CATEGORY_FIELDS = {
 const KEY_STATUS_FIELDS = {
   key_last4: gsdConfig.key_last4,
   updated_at: gsdConfig.updated_at,
+};
+
+/** Token metadata — never includes token_hash. See lib/blog/types.ts ApiTokenMeta. */
+const TOKEN_META_FIELDS = {
+  id: apiTokens.id,
+  name: apiTokens.name,
+  token_prefix: apiTokens.token_prefix,
+  scopes: apiTokens.scopes,
+  created_at: apiTokens.created_at,
+  last_used_at: apiTokens.last_used_at,
+  revoked_at: apiTokens.revoked_at,
 };
 
 export default async function SettingsPage() {
@@ -54,10 +67,15 @@ export default async function SettingsPage() {
       asc(dashboardCategories.sort_order)
     );
   const keyRowsPromise = db.select(KEY_STATUS_FIELDS).from(gsdConfig).limit(1);
+  const tokensPromise = db
+    .select(TOKEN_META_FIELDS)
+    .from(apiTokens)
+    .orderBy(desc(apiTokens.created_at));
 
-  const [categoriesResult, keyRowsResult] = await Promise.allSettled([
+  const [categoriesResult, keyRowsResult, tokensResult] = await Promise.allSettled([
     categoriesPromise,
     keyRowsPromise,
+    tokensPromise,
   ]);
 
   if (categoriesResult.status === "rejected") {
@@ -90,10 +108,19 @@ export default async function SettingsPage() {
     updated_at: keyRows[0]?.updated_at ?? null,
   };
 
+  let tokens: ApiTokenMeta[] = [];
+
+  if (tokensResult.status === "fulfilled") {
+    tokens = tokensResult.value as ApiTokenMeta[];
+  } else {
+    console.error("Settings token list error:", tokensResult.reason);
+  }
+
   return (
     <>
       <SettingsView initialCategories={categories} />
       <GsdKeyCard initialStatus={keyStatus} />
+      <ApiTokensCard initialTokens={tokens} />
     </>
   );
 }
