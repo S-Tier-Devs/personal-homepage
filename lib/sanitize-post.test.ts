@@ -6,13 +6,28 @@ const CDN = "https://pb-public-media.nyc3.cdn.digitaloceanspaces.com";
 const opts = { mediaOrigin: CDN };
 
 describe("sanitizePostHtml — tags", () => {
-  it("keeps the post subset and drops everything else, keeping text", () => {
+  it("keeps the post subset, including div, and drops everything else, keeping text", () => {
+    // <div> is in the post profile's allowlist (contenteditable emits one per
+    // line — see RichTextEditor's mount effect and buildPostProfile in
+    // lib/sanitize.ts), so it round-trips rather than being dropped.
     expect(
       sanitizePostHtml(
         "<h2>Title</h2><blockquote><p>q</p></blockquote><pre><code>x=1</code></pre><hr><div>text</div>",
         opts
       )
-    ).toBe("<h2>Title</h2><blockquote><p>q</p></blockquote><pre><code>x=1</code></pre><hr>text");
+    ).toBe(
+      "<h2>Title</h2><blockquote><p>q</p></blockquote><pre><code>x=1</code></pre><hr><div>text</div>"
+    );
+  });
+
+  // Regression: browsers emit a <div> per line in contenteditable. Before div
+  // was added to the allowlist, the unknown-tag-drop rule kept the text but
+  // discarded the tag, which merged adjacent lines' words together with no
+  // separator at all — not just losing paragraph structure.
+  it("keeps per-line <div> wrappers instead of merging their text", () => {
+    expect(sanitizePostHtml("line1<div>line2</div>", opts)).toBe(
+      "line1<div>line2</div>"
+    );
   });
 
   it("still discards script/style contents entirely", () => {

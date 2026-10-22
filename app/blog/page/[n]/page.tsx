@@ -30,6 +30,11 @@ export default async function BlogPagePage({ params }: { params: Promise<{ n: st
 
   if (page < 2) notFound();
 
+  // Canonical numerals only: "02" parses to the same page as "2" but is a
+  // distinct URL, so reject anything that doesn't round-trip back to its
+  // own string (leading zeros, etc.) to avoid duplicate-content URLs.
+  if (String(page) !== n) notFound();
+
   const posts = await getLivePosts();
   const totalPages = Math.max(1, Math.ceil(posts.length / BLOG_PAGE_SIZE));
 

@@ -138,6 +138,13 @@ export default function BlogView({ initialPosts }: { initialPosts: BlogPost[] })
   const revisionRef = useRef(0);
   const appliedRevisionRef = useRef(0);
   const inFlightRef = useRef(0);
+  /**
+   * The in-flight autosave's full fetch chain (fetch → body parse → baseline
+   * update), if any. `sendExplicit` awaits this instead of racing it with its
+   * own PATCH — both would otherwise read the same stale `if_updated_at` and
+   * one would 409 (see FIX 2 in the F-013 final review).
+   */
+  const lastSaveRef = useRef<Promise<void> | null>(null);
 
   const searchId = useId();
   const titleId = useId();
@@ -276,6 +283,17 @@ export default function BlogView({ initialPosts }: { initialPosts: BlogPost[] })
       return;
     }
 
+    if (inFlightRef.current > 0) {
+      // A save is already in flight. Starting a second one now would send
+      // the same stale if_updated_at as that request — whichever lands
+      // second 409s (the Publish/Update self-race this guards against more
+      // generally). Re-arm the debounce instead; the in-flight request's
+      // `.then` below refreshes the baseline, and `pending` is untouched so
+      // the retry still has it.
+      timerRef.current = setTimeout(() => flushPending(), AUTOSAVE_DELAY_MS);
+      return;
+    }
+
     pendingRef.current = null;
 
     const base = baselineRef.current.get(pending.id);
@@ -285,7 +303,7 @@ export default function BlogView({ initialPosts }: { initialPosts: BlogPost[] })
     inFlightRef.current += 1;
     setSaveState("saving");
 
-    void fetch(`/api/blog/posts/${pending.id}`, {
+    const savePromise = fetch(`/api/blog/posts/${pending.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...pending.patch, if_updated_at: base?.updated_at }),
@@ -316,10 +334,17 @@ export default function BlogView({ initialPosts }: { initialPosts: BlogPost[] })
       .finally(() => {
         inFlightRef.current -= 1;
 
+        // Only clear if nothing has replaced this as "the" latest save.
+        if (lastSaveRef.current === savePromise) {
+          lastSaveRef.current = null;
+        }
+
         if (inFlightRef.current === 0 && !pendingRef.current) {
           setSaveState((current) => (current === "error" ? current : "saved"));
         }
       });
+
+    lastSaveRef.current = savePromise;
   }, [applySaved, showToast]);
 
   const queueSave = useCallback(
@@ -451,8 +476,24 @@ export default function BlogView({ initialPosts }: { initialPosts: BlogPost[] })
   async function sendExplicit(patch: PostPatch & { status?: "draft" | "published" }) {
     if (!activePost || busy) return;
 
-    flushPending();
+    // Cancel the pending autosave rather than flushing it: flushing here is
+    // exactly the self-race this fixes — onBlur's flush (fetch 1) landing
+    // alongside this PATCH (fetch 2) with the same stale if_updated_at,
+    // whichever lands second 409ing. diffPatch() below reads current React
+    // state directly, which already has every local edit (pending or not),
+    // so nothing queued here is lost by dropping it.
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+
+    pendingRef.current = null;
     setBusy(true);
+
+    // Wait for a save already in flight to land first — its `.then` moves
+    // the baseline forward, so if_updated_at read below is fresh rather than
+    // racing that request's PATCH for the same field.
+    await lastSaveRef.current?.catch(() => {});
 
     const base = baselineRef.current.get(activePost.id);
 
@@ -996,6 +1037,7 @@ export default function BlogView({ initialPosts }: { initialPosts: BlogPost[] })
               <Link
                 href={`/dashboard/blog/${activePost.id}/preview`}
                 target="_blank"
+                rel="noopener noreferrer"
                 className="text-[13px] font-semibold text-accent hover:underline"
               >
                 Preview post ↗

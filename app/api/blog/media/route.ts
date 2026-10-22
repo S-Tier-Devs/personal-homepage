@@ -26,8 +26,18 @@ export async function POST(request: NextRequest) {
     return apiError("SERVER_ERROR", "Media storage is not configured.", 500);
   }
 
+  let formData: FormData;
+
   try {
-    const formData = await request.formData();
+    formData = await request.formData();
+  } catch {
+    // Malformed multipart (bad boundary, truncated body, wrong content
+    // type) must read as a client error, not fall through to the generic
+    // STORAGE_ERROR 500 below — nothing was ever sent to storage.
+    return apiError("INVALID_BODY", "Request body must be multipart form data.", 400);
+  }
+
+  try {
     const file = formData.get("file");
     const altRaw = formData.get("alt");
 

@@ -579,6 +579,10 @@ function buildPostProfile(mediaOrigin: string | null): SanitizeProfile {
   for (const t of [
     "p", "br", "strong", "b", "em", "i", "h2", "h3", "ul", "ol", "li",
     "blockquote", "pre", "code", "figure", "figcaption", "hr",
+    // contenteditable emits <div> per line (see RichTextEditor's mount
+    // effect); dropping it as an unknown tag merges adjacent lines' text
+    // together with no separator, not just losing formatting.
+    "div",
   ]) {
     tags.set(t, plain);
   }

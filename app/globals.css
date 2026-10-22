@@ -208,6 +208,7 @@
   .post-body h2 { font-size: 1.45rem; }
   .post-body h3 { font-size: 1.15rem; }
   .post-body p { margin-block: 0.75rem; }
+  .post-body div { margin-block: 0.75rem; }
 
   .post-body ul,
   .post-body ol {

@@ -187,3 +187,37 @@ Supabase to opaque sessions; the token half is unaffected.
 vars via the live-spec procedure) before agents can upload media. Verify
 revocation live: a revoked token's next request returns 401 (proves the SQL
 half of the guard, not just the code path).
+
+---
+
+## 2026-10-22 — Shared editor forces `<p>` as the default paragraph separator
+**Status**: Active
+**Context**: F-013 final whole-branch review found that typed posts lost
+paragraph structure — and merged adjacent lines' words with no separator at
+all — because browsers default a contenteditable's per-Enter wrapper to
+`<div>`, while the post sanitiser (`buildPostProfile` in `lib/sanitize.ts`) is
+`<p>`-first and was dropping unrecognised tags (text kept, tag discarded).
+`RichTextEditor` is shared between Notes and the blog editor, so any fix here
+is a behaviour change for both surfaces.
+**Decision**: On mount, `RichTextEditor` calls
+`document.execCommand("defaultParagraphSeparator", false, "p")` (non-fatal —
+some browsers may reject the deprecated command, in which case the `<div>`
+allowlist fallback below still holds). As a safety net for pasted/legacy
+markup and browsers that ignore the command, `buildPostProfile` now also
+allowlists bare `<div>` (`NOTE_PROFILE` already allowed it). `.post-body div`
+in `app/globals.css` gets the same `margin-block` as `.post-body p`.
+**Alternatives considered**: Sanitiser-side only (convert `<div>` to `<p>` at
+save time) — rejected because it still lets malformed/merged text reach the
+editor's live DOM before the next save, and converting block-level semantics
+server-side is lossier than just allowlisting the tag browsers actually emit.
+Leaving `<div>` unlisted and accepting the text-merge — rejected outright,
+it is a data-loss bug, not a style preference.
+**Consequences**: Both Notes and blog posts now store `<p>` for new content
+typed after this change (existing stored `<div>`-only content, if any,
+continues to render correctly via the allowlist + CSS rule, it just never
+gets rewritten to `<p>` on its own). Idempotence of `sanitizePostHtml` is
+preserved — `<div>` round-trips byte-for-byte, same as `<p>`.
+**Follow-up tasks**: None — this is believed complete. Revisit only if a
+browser is found where `defaultParagraphSeparator` silently produces a third
+wrapper tag (e.g., `<br>`-only line breaks), which would need its own
+allowlist entry.

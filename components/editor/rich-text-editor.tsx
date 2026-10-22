@@ -47,6 +47,22 @@ export default function RichTextEditor({
 }) {
   const [active, setActive] = useState<Record<string, boolean>>({});
 
+  // Browsers default a contenteditable's per-line wrapper to <div> on Enter,
+  // but the post sanitiser (`buildPostProfile` in lib/sanitize.ts) is <p>-first
+  // and the note sanitiser (`NOTE_PROFILE`) already allows <p> too — so forcing
+  // <p> is safe for both consumers of this shared editor. This is a deliberate,
+  // controller-ruled behaviour change (ledgered in docs/ai/decision-records.md,
+  // 2026-10-22) rather than a silent default. Non-fatal: some browsers reject
+  // the deprecated command outright, and <div> is still rendered correctly by
+  // the FIX-1b sanitiser allowlist either way.
+  useEffect(() => {
+    try {
+      document.execCommand("defaultParagraphSeparator", false, "p");
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
+
   /** Reflects the caret's formatting onto aria-pressed, per tool probe. */
   const syncFormatState = useCallback(() => {
     try {
