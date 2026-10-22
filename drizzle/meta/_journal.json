@@ -15,6 +15,13 @@
       "when": 1785339686368,
       "tag": "0001_woozy_rocket_raccoon",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792669795809,
+      "tag": "0002_cultured_sway",
+      "breakpoints": true
     }
   ]
 }
