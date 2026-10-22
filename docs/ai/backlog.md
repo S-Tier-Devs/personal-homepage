@@ -225,3 +225,10 @@ speculatively.
 
 **Trigger:** batch these into a small follow-up pass once there's a reason to touch
 this area again, or on the next blog-focused session.
+
+### Blog admin: filter-chip counts go stale as the clock crosses `published_at`
+- **Date added**: 2026-10-22
+- **Priority**: low
+- **Origin**: Chrome editor smoke (production), found live
+- **Problem**: The All/Published/Drafts/Scheduled chip counts are a `useMemo` over the loaded `posts` array, so they derive status once and don't update as time passes a scheduled post's `published_at`. The row status pill and the detail panel re-run `deriveStatus` every render, so they can disagree with the chips (observed "Scheduled 1 / Published 0" while the selected post showed Published). Admin-only and cosmetic — the public site derives live on each request and was never wrong.
+- **Trigger**: fix when touching the blog admin view; cheap options are a periodic re-render (interval tick) or a refetch on window focus, which would also cure the existing "admin status is a point-in-time snapshot" lag noted during the SDD run.
