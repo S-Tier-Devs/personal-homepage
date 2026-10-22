@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireBlogAuth } from "@/lib/auth/blog-guard";
@@ -40,6 +40,16 @@ interface PostUpdate {
   updated_by?: "admin" | "agent";
   updated_by_token_id?: string | null;
 }
+
+/**
+ * Thrown from inside the PATCH transaction when the atomic UPDATE (guarded by
+ * if_updated_at) matches zero rows — a racing writer committed between the
+ * pre-transaction read and this statement. Throwing aborts/rolls back the
+ * transaction, so no event row survives a lost race; the outer catch turns
+ * this into the same 409 CONFLICT the pre-check gives, before the generic
+ * 23505 check.
+ */
+class PatchConflictError extends Error {}
 
 async function loadPost(db: DrizzleDb, id: string): Promise<BlogPost | undefined> {
   const rows = (await db
@@ -94,7 +104,11 @@ export async function GET(
  *
  * Concurrency: an optional `if_updated_at` must equal the stored updated_at
  * EXACTLY (string compare) or the request 409s — how an agent edit racing the
- * owner's open editor is surfaced instead of silently overwritten.
+ * owner's open editor is surfaced instead of silently overwritten. That
+ * pre-transaction check is advisory, fast feedback only: the atomic guard is
+ * the UPDATE's own WHERE clause (id AND updated_at = if_updated_at), which is
+ * what actually prevents two racing writers from both committing against the
+ * same stale read.
  *
  * Slug lock: a LIVE post's slug cannot change (SLUG_LOCKED 409) — unpublish
  * first, deliberately, because renames break inbound links.
@@ -139,6 +153,8 @@ export async function PATCH(
     return apiError("NOT_FOUND", "No post with that id.", 404);
   }
 
+  let ifUpdatedAt: string | undefined;
+
   if ("if_updated_at" in body) {
     if (typeof body.if_updated_at !== "string") {
       return apiError("INVALID_BODY", "if_updated_at must be a string.", 400);
@@ -151,6 +167,8 @@ export async function PATCH(
         409
       );
     }
+
+    ifUpdatedAt = body.if_updated_at;
   }
 
   const updates: PostUpdate = {};
@@ -303,8 +321,22 @@ export async function PATCH(
       const [saved] = (await tx
         .update(blogPosts)
         .set(updates)
-        .where(eq(blogPosts.id, id))
+        .where(
+          ifUpdatedAt !== undefined
+            ? and(eq(blogPosts.id, id), eq(blogPosts.updated_at, ifUpdatedAt))
+            : eq(blogPosts.id, id)
+        )
         .returning()) as BlogPost[];
+
+      // The pre-transaction if_updated_at check already rejected an obvious
+      // mismatch, but it read `existing` before this transaction opened — a
+      // second writer can commit in between. The WHERE above is the atomic
+      // guard: if it matched zero rows, someone else's write landed first.
+      // Throwing here rolls back the transaction, so no event row is written
+      // for a lost race.
+      if (!saved) {
+        throw new PatchConflictError();
+      }
 
       // A PATCH that changed nothing observable (e.g. autosave resending the
       // same text) bumps updated_at but earns no log row — the activity log
@@ -327,6 +359,14 @@ export async function PATCH(
 
     return NextResponse.json(post, { status: 200 });
   } catch (error) {
+    if (error instanceof PatchConflictError) {
+      return apiError(
+        "CONFLICT",
+        "This post changed since you loaded it — reload and retry.",
+        409
+      );
+    }
+
     if (postgresErrorCode(error) === UNIQUE_VIOLATION) {
       return apiError("SLUG_TAKEN", "A post with that slug already exists.", 409);
     }
