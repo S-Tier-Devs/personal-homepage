@@ -62,3 +62,13 @@ export function getSiteUrl() {
   const raw = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.patrickbeasley.com";
   return raw.replace(/\/+$/, "");
 }
+
+/**
+ * Public CDN origin for the pb-public-media Spaces bucket. Optional: when
+ * unset (local dev without Spaces), sanitizePostHtml drops every <img> and
+ * the media route answers 500 — honest failures, not silent fallbacks.
+ * Must be RUN_AND_BUILD_TIME in the app spec: next.config.ts reads it for CSP.
+ */
+export function getSpacesMediaCdnUrl(): string | null {
+  return process.env.SPACES_MEDIA_CDN_URL ?? null;
+}

@@ -36,7 +36,18 @@ export type ApiErrorCode =
   // Documents (app/api/files/*).
   | "INVALID_FILE_TYPE"
   | "FILE_TOO_LARGE"
-  | "STORAGE_ERROR";
+  | "STORAGE_ERROR"
+  // Blog (app/api/blog/*, F-013).
+  | "INVALID_SLUG"
+  | "SLUG_TAKEN"
+  // A LIVE post's slug cannot change (breaks inbound links); unpublish first,
+  // deliberately. Distinct from SLUG_TAKEN: the remedy differs.
+  | "SLUG_LOCKED"
+  | "EXCERPT_REQUIRED"
+  | "INVALID_TAGS"
+  | "INVALID_DATE"
+  | "INVALID_IMAGE_TYPE"
+  | "IMAGE_TOO_LARGE";
 
 export function apiError(error: ApiErrorCode, message: string, status: number) {
   return NextResponse.json({ error, message }, { status });
