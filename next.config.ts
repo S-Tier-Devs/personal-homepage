@@ -11,6 +11,18 @@ const supabaseHost = supabaseUrl ? new URL(supabaseUrl).hostname : "*.supabase.c
 // exactly this pattern for a nonce-free CSP.
 const isDev = process.env.NODE_ENV === "development";
 
+// Blog media CDN for CSP img-src. headers() is evaluated at BUILD time, so
+// SPACES_MEDIA_CDN_URL must be RUN_AND_BUILD_TIME in the app spec (it is a
+// plain value, not a secret). Unset locally → simply absent from the policy.
+const mediaCdnRaw = process.env.SPACES_MEDIA_CDN_URL ?? "";
+let mediaCdnOrigin = "";
+
+try {
+  mediaCdnOrigin = mediaCdnRaw ? new URL(mediaCdnRaw).origin : "";
+} catch {
+  mediaCdnOrigin = "";
+}
+
 const securityHeaders = [
   {
     key: "X-DNS-Prefetch-Control",
@@ -49,7 +61,7 @@ const securityHeaders = [
       // Supabase API calls + self
       `connect-src 'self' https://${supabaseHost} wss://${supabaseHost}`,
       // Allow images from self, data URIs, and blob (for file previews)
-      "img-src 'self' data: blob:",
+      `img-src 'self' data: blob:${mediaCdnOrigin ? ` ${mediaCdnOrigin}` : ""}`,
       // Prevent embedding in frames
       "frame-ancestors 'none'",
       "base-uri 'self'",

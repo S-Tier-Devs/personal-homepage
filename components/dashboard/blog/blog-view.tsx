@@ -1,7 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 
 import RichTextEditor, { type ToolSpec } from "@/components/editor/rich-text-editor";
 import { ChevronLeftIcon, LinkIcon, PenIcon, SearchIcon } from "@/components/dashboard/icons";
@@ -117,6 +125,8 @@ export default function BlogView({ initialPosts }: { initialPosts: BlogPost[] })
 
   const editorRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageRangeRef = useRef<Range | null>(null);
   /** Last server-acknowledged copy per post — if_updated_at + dirty detection. */
   const baselineRef = useRef(new Map<string, BlogPost>(initialPosts.map((p) => [p.id, p])));
   const loadedPostIdRef = useRef<string | null>(null);
@@ -357,6 +367,50 @@ export default function BlogView({ initialPosts }: { initialPosts: BlogPost[] })
     editField({ content_html: element.innerHTML });
   }
 
+  async function handleImagePick(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file || !activePost) return;
+
+    const form = new FormData();
+
+    form.append("file", file);
+    setBusy(true);
+
+    try {
+      const response = await fetch("/api/blog/media", { method: "POST", body: form });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Could not upload the image."));
+      }
+
+      const media: { url: string; width?: number; height?: number } = await response.json();
+      const alt = (window.prompt("Alt text (describe the image)") ?? "").trim();
+      const editor = editorRef.current;
+
+      if (!editor) return;
+
+      editor.focus();
+      restoreSelection(imageRangeRef.current);
+
+      const dims =
+        media.width && media.height ? ` width="${media.width}" height="${media.height}"` : "";
+
+      document.execCommand(
+        "insertHTML",
+        false,
+        `<img src="${media.url}" alt="${alt.replace(/"/g, "&quot;")}"${dims}>`
+      );
+      handleEditorInput();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not upload the image.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleNewPost() {
     if (creating) return;
 
@@ -548,6 +602,16 @@ export default function BlogView({ initialPosts }: { initialPosts: BlogPost[] })
           handleEditorInput();
         },
       },
+      {
+        key: "image",
+        label: "Image",
+        content: <span className="text-[10px] font-semibold">IMG</span>,
+        onRun: (editor) => {
+          // Selection dies when the file dialog takes focus — capture it now.
+          imageRangeRef.current = saveSelection(editor);
+          imageInputRef.current?.click();
+        },
+      },
     ],
     // handleEditorInput is stable enough for this use: it reads refs/state via
     // closures that re-create with each render of the memo's consumers.
@@ -561,6 +625,15 @@ export default function BlogView({ initialPosts }: { initialPosts: BlogPost[] })
 
   return (
     <section className="flex flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow min-[561px]:min-h-0 min-[561px]:flex-1">
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={handleImagePick}
+        aria-hidden="true"
+        tabIndex={-1}
+      />
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-[18px]">
         <div className="flex min-w-[160px] flex-1 items-center gap-[10px]">
           <span className="flex text-accent">

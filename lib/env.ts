@@ -72,3 +72,17 @@ export function getSiteUrl() {
 export function getSpacesMediaCdnUrl(): string | null {
   return process.env.SPACES_MEDIA_CDN_URL ?? null;
 }
+
+/** Spaces credentials + region. Server-only; secrets added via the LIVE spec
+ *  procedure, never by applying .do/app.yaml (docs/ARCHITECTURE.md). */
+export function getSpacesCredentials() {
+  return {
+    key: getRequiredEnv("SPACES_KEY"),
+    secret: getRequiredEnv("SPACES_SECRET"),
+    region: getRequiredEnv("SPACES_REGION"),
+  };
+}
+
+export function getSpacesMediaBucket() {
+  return getRequiredEnv("SPACES_MEDIA_BUCKET");
+}
