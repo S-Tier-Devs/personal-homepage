@@ -14,12 +14,13 @@ import {
   MenuIcon,
   NoteIcon,
   OverviewIcon,
+  PenIcon,
   TaskIcon,
   WorkIcon,
 } from "@/components/dashboard/icons";
 import { useWorkspace, type Workspace } from "@/components/dashboard/workspace-context";
 
-export type DashboardSection = "overview" | "links" | "notes" | "tasks" | "documents" | "feeds" | "settings";
+export type DashboardSection = "overview" | "links" | "notes" | "tasks" | "documents" | "feeds" | "blog" | "settings";
 
 /** Per-section badge counts. Sections without a count render no badge. */
 export type DashboardCounts = Partial<Record<DashboardSection, number>>;
@@ -44,6 +45,7 @@ const NAV_ENTRIES: NavEntry[] = [
   { key: "tasks", label: "Tasks", href: "/dashboard/tasks", Icon: TaskIcon, inTabBar: true },
   { key: "documents", label: "Documents", href: "/dashboard/documents", Icon: DocIcon, inTabBar: true },
   { key: "feeds", label: "Feeds", href: "/dashboard/feeds", Icon: FeedIcon, inTabBar: true },
+  { key: "blog", label: "Blog", href: "/dashboard/blog", Icon: PenIcon, inTabBar: false },
   { key: "settings", label: "Settings", href: "/dashboard/settings", Icon: GearIcon, inTabBar: false },
 ];
 
