@@ -20,6 +20,7 @@ so they read "pre-1.0". Work shipped from here on carries a real version.
 
 | ID | Title | Description | Source | Status | Notes |
 |---|---|---|---|---|---|
+| F-013 | Blog | Public `/blog` + `/blog/[slug]` + RSS; `/dashboard/blog` admin with rich-text editor; blog-scoped API tokens so agents can create, edit, delete and publish; images on DO Spaces. | you | assigned (v0.2) | Spec `specs/2026-10-22-blog-design.md`; mockup approved 2026-10-22 |
 
 ## Unassigned
 
