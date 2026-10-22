@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { ChevronLeftIcon, NoteIcon, SearchIcon, TrashIcon } from "@/components/dashboard/icons";
 import { useToast } from "@/components/dashboard/toast";
 import { useWorkspace } from "@/components/dashboard/workspace-context";
+import RichTextEditor, { type ToolSpec } from "@/components/editor/rich-text-editor";
 import { resolveNotePane } from "@/lib/dashboard/resolve-note-pane";
 import type { Category, NoteItem } from "@/lib/dashboard/types";
 import { NOTE_TITLE_MAX_LENGTH, noteHtmlToText } from "@/lib/sanitize";
@@ -28,9 +29,6 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 
 const CONTROL_CLASS =
   "h-[34px] rounded-[9px] border border-border-2 bg-surface-2 px-[10px] text-[13px] text-text";
-
-const TOOLBAR_BUTTON_CLASS =
-  "h-[30px] w-8 cursor-pointer rounded-[7px] border border-border text-[13px] text-text disabled:cursor-not-allowed disabled:opacity-50";
 
 /** Matches the design's editor autosave delay. */
 const AUTOSAVE_DELAY_MS = 300;
@@ -68,6 +66,41 @@ async function readApiError(response: Response, fallback: string): Promise<strin
   return fallback;
 }
 
+const NOTE_TOOLS: ToolSpec[] = [
+  {
+    key: "bold",
+    label: "Bold",
+    content: "B",
+    command: "bold",
+    buttonClassName: "font-bold",
+    active: (doc) => doc.queryCommandState("bold"),
+  },
+  {
+    key: "italic",
+    label: "Italic",
+    content: "i",
+    command: "italic",
+    buttonClassName: "italic",
+    active: (doc) => doc.queryCommandState("italic"),
+  },
+  {
+    key: "bullet",
+    label: "Bullet list",
+    content: "•",
+    command: "insertUnorderedList",
+    active: (doc) => doc.queryCommandState("insertUnorderedList"),
+  },
+  {
+    key: "heading",
+    label: "Heading",
+    content: "H",
+    command: "formatBlock",
+    value: "H3",
+    buttonClassName: "text-xs font-bold",
+    active: (doc) => doc.queryCommandValue("formatBlock").toLowerCase() === "h3",
+  },
+];
+
 export default function NotesView({
   initialNotes,
   categories,
@@ -85,12 +118,6 @@ export default function NotesView({
   const [sort, setSort] = useState<SortKey>("recent");
   const [creating, setCreating] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [format, setFormat] = useState({
-    bold: false,
-    italic: false,
-    bullet: false,
-    heading: false,
-  });
 
   const editorRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -360,41 +387,6 @@ export default function NotesView({
   // firing `pagehide`, so flush there too.
   useEffect(() => () => flushPending({ keepalive: true }), [flushPending]);
 
-  /** Reflects the caret's current formatting onto the toolbar's `aria-pressed`. */
-  const syncFormatState = useCallback(() => {
-    try {
-      setFormat({
-        bold: document.queryCommandState("bold"),
-        italic: document.queryCommandState("italic"),
-        bullet: document.queryCommandState("insertUnorderedList"),
-        heading: document.queryCommandValue("formatBlock").toLowerCase() === "h3",
-      });
-    } catch {
-      // Some browsers throw when queried with no live selection; the toolbar
-      // simply keeps its previous state.
-    }
-  }, []);
-
-  useEffect(() => {
-    function handleSelectionChange() {
-      const element = editorRef.current;
-      const selection = document.getSelection();
-
-      if (!element || !selection || selection.rangeCount === 0) {
-        return;
-      }
-
-      if (!selection.anchorNode || !element.contains(selection.anchorNode)) {
-        return;
-      }
-
-      syncFormatState();
-    }
-
-    document.addEventListener("selectionchange", handleSelectionChange);
-    return () => document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [syncFormatState]);
-
   function handleEditorInput() {
     const element = editorRef.current;
 
@@ -413,7 +405,6 @@ export default function NotesView({
       )
     );
     queueSave(activeNote.id, { content_html: html });
-    syncFormatState();
   }
 
   function handleTitleChange(value: string) {
@@ -450,23 +441,6 @@ export default function NotesView({
     queueSave(activeNote.id, { category_id: value });
     // Not a keystroke — no reason to make the user wait out the debounce.
     flushPending();
-  }
-
-  /**
-   * `document.execCommand` is deprecated, but it is what the design uses and
-   * the only way to drive a `contenteditable` without pulling in an editor
-   * library. Sanctioned by the Phase 5 brief.
-   */
-  function exec(command: string, value?: string) {
-    const element = editorRef.current;
-
-    if (!element || !activeNote) {
-      return;
-    }
-
-    element.focus();
-    document.execCommand(command, false, value);
-    handleEditorInput();
   }
 
   function handleOpenNote(id: string) {
@@ -765,94 +739,15 @@ export default function NotesView({
                 </button>
               </div>
 
-              <div
-                role="toolbar"
-                aria-label="Formatting"
-                aria-controls={`${titleId}-editor`}
-                className="flex gap-1 border-b border-border bg-surface-2 px-[10px] py-1.5"
-              >
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => exec("bold")}
-                  aria-pressed={format.bold}
-                  aria-label="Bold"
-                  title="Bold"
-                  className={`${TOOLBAR_BUTTON_CLASS} font-bold ${format.bold ? "bg-accent-soft text-accent" : "bg-surface"}`}
-                >
-                  B
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => exec("italic")}
-                  aria-pressed={format.italic}
-                  aria-label="Italic"
-                  title="Italic"
-                  className={`${TOOLBAR_BUTTON_CLASS} italic ${format.italic ? "bg-accent-soft text-accent" : "bg-surface"}`}
-                >
-                  i
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => exec("insertUnorderedList")}
-                  aria-pressed={format.bullet}
-                  aria-label="Bullet list"
-                  title="Bullet list"
-                  className={`${TOOLBAR_BUTTON_CLASS} ${format.bullet ? "bg-accent-soft text-accent" : "bg-surface"}`}
-                >
-                  •
-                </button>
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => exec("formatBlock", "H3")}
-                  aria-pressed={format.heading}
-                  aria-label="Heading"
-                  title="Heading"
-                  className={`${TOOLBAR_BUTTON_CLASS} text-xs font-bold ${format.heading ? "bg-accent-soft text-accent" : "bg-surface"}`}
-                >
-                  H
-                </button>
-
-                <div className="flex-1" />
-
-                <span
-                  role="status"
-                  aria-live="polite"
-                  className="self-center font-mono text-[10px] text-muted"
-                >
-                  spellcheck on · {saveLabel}
-                </span>
-              </div>
-
-              {/*
-                Uncontrolled by design: React renders no children here and the
-                markup is written imperatively, once per note. `data-ph` drives
-                the empty-state placeholder from globals.css.
-              */}
-              <div
-                id={`${titleId}-editor`}
-                ref={editorRef}
-                contentEditable
-                spellCheck
-                role="textbox"
-                aria-multiline="true"
-                aria-label="Note body"
-                data-ph="Start writing… spellcheck is on."
+              <RichTextEditor
+                tools={NOTE_TOOLS}
+                statusText={`spellcheck on · ${saveLabel}`}
+                placeholder="Start writing… spellcheck is on."
+                ariaLabel="Note body"
+                editorId={`${titleId}-editor`}
+                editorRef={editorRef}
                 onInput={handleEditorInput}
                 onBlur={() => flushPending()}
-                // The editor is the only focusable region with no border of its
-                // own, so it still needs a focus affordance — but the browser
-                // default draws a heavy, high-contrast blue box that reads as a
-                // mis-sized border. `outline-none` drops that; the soft inset
-                // accent ring keeps a gentle, on-brand cue for both mouse and
-                // keyboard focus. It must sit on `:focus`, not `:focus-visible`:
-                // a contenteditable matches `:focus-visible` on a mouse click
-                // too, so a focus-visible-only rule would leave the heavy box in
-                // place for exactly that interaction.
-                className="min-h-[200px] flex-1 overflow-auto px-[18px] py-[18px] text-[15px] leading-[1.7] text-text outline-none focus:shadow-[inset_0_0_0_2px_var(--color-accent-soft)] min-[561px]:min-h-0"
               />
             </div>
           ) : (

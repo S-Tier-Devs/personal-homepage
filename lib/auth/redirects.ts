@@ -21,13 +21,26 @@ export function normalizeNextPath(input: string | null, fallback = "/") {
   // forward slashes, so "/\evil.com" resolves to "//evil.com" and lands on
   // another host while passing any startsWith("//") test.
   try {
-    const probe = new URL(input, "https://validate.invalid");
+    const base = "https://validate.invalid";
+    const probe = new URL(input, base);
 
-    if (probe.origin !== "https://validate.invalid") {
+    if (probe.origin !== base) {
       return fallback;
     }
 
-    return `${probe.pathname}${probe.search}${probe.hash}`;
+    const value = `${probe.pathname}${probe.search}${probe.hash}`;
+
+    // The parsed object can look safe while its SERIALIZED form is not:
+    // "/..//evil.com" resolves to a `probe` whose origin is still `base`,
+    // but re-serializing it collapses "/.." and yields the
+    // protocol-relative "//evil.com" (same for "/.//evil.com",
+    // "/%2e%2e//evil.com", "/..&#47;/evil.com" after decoding). Round-trip
+    // the EMITTED value, not the parsed one.
+    if (new URL(value, base).origin !== base) {
+      return fallback;
+    }
+
+    return value;
   } catch {
     return fallback;
   }

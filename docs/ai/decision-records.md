@@ -154,3 +154,70 @@ This file tracks significant decisions made about AI workflows, tooling, and con
 **Consequences**: No Supabase SDK and no anon key ship to the browser — `lib/supabase/browser.ts` was their only client-side consumer. The `router.push()` + `router.refresh()` race is gone, since a server-set cookie precedes a server redirect. The email must be retyped after a failed sign-in without JS, accepted deliberately. `NEXT_PUBLIC_SITE_URL` is now load-bearing: `emailRedirectTo` derives from it rather than `window.location.origin`, because trusting a request `Host` header in an emailed link is a poisoning vector — it must be set per environment or magic links point at the fallback origin. Auth is now one replaceable server module, which also makes a future move off Supabase materially cheaper.  
 **Verified**: Sign-in succeeded on the Forcepoint-filtered network that motivated the change. Also verified in production: wrong password redirects to `?error=1`, no credentials appear in any URL, and a browser with no prior session can sign in. **Not verified**: the formal acceptance criterion of every flow with JavaScript explicitly disabled, and magic link end to end.  
 **Follow-up tasks**: Set `httpOnly: true` on session cookies — nothing client-side reads them any more, so this is a free reduction in XSS blast radius. Clear the sticky `?error=1` / `?sent=1` params, which persist across a refresh where the old state-based form cleared them. Enforce that `lib/env.ts` stays server-only (needs the `server-only` package); nothing currently prevents a future `"use client"` import from silently re-inlining the anon key with every gate still green.
+
+## 2026-10-22 — Second auth surface: blog API tokens
+**Status**: Active  
+**Context**: F-013's primary authors are AI agents, not the owner — they need
+credentials that are not the owner's session, are individually revocable, and
+are attributable in the activity log. Tier stays T0 personal (single human
+owner); this adds machine credentials, not user accounts.  
+**Decision**: Add `requireBlogAuth` (session OR blog-scoped bearer token)
+beside `requireAdminAuth`, used only under `app/api/blog/**`. Tokens are
+`pbk_` + 32 random bytes base64url, SHA-256-hashed at rest, soft-revoked
+(`revoked_at`, so events keep their reference), with `last_used_at` throttled
+to once per minute. If an `Authorization` header is present it must be a
+valid, unrevoked, `blog`-scoped token or the request is a 401 — it never
+falls back to the cookie session. No rate limiting (256-bit entropy makes
+online guessing infeasible) and no token expiry (instant revocation plus
+`last_used_at` visibility cover the risk at T0) — both stated decisions, not
+gaps.  
+**Alternatives considered**: A shared env-var secret (not revocable per-agent,
+no attribution in the activity log); Supabase service accounts (deepens the
+dependency this project is migrating off); finer per-verb scopes
+(`blog:read`, `blog:publish`) now (enforcement without a policy behind it —
+the owner decided agents may create, edit, delete and publish; the `scopes`
+array keeps finer grants additive later, not a migration).  
+**Consequences**: The second auth surface is confined to `app/api/blog/**` by
+construction and by test (`lib/auth/blog-guard-scope.test.ts` asserts only
+that tree imports `requireBlogAuth`); token routes (`/api/api-tokens/**`)
+stay on `requireAdminAuth`, so a token can't create, list, or revoke tokens.
+Compatible with migration Phase 3: the session half of the guard swaps from
+Supabase to opaque sessions; the token half is unaffected.  
+**Follow-up tasks**: Owner runs the infra checklist (Spaces bucket/key, env
+vars via the live-spec procedure) before agents can upload media. Verify
+revocation live: a revoked token's next request returns 401 (proves the SQL
+half of the guard, not just the code path).
+
+---
+
+## 2026-10-22 — Shared editor forces `<p>` as the default paragraph separator
+**Status**: Active
+**Context**: F-013 final whole-branch review found that typed posts lost
+paragraph structure — and merged adjacent lines' words with no separator at
+all — because browsers default a contenteditable's per-Enter wrapper to
+`<div>`, while the post sanitiser (`buildPostProfile` in `lib/sanitize.ts`) is
+`<p>`-first and was dropping unrecognised tags (text kept, tag discarded).
+`RichTextEditor` is shared between Notes and the blog editor, so any fix here
+is a behaviour change for both surfaces.
+**Decision**: On mount, `RichTextEditor` calls
+`document.execCommand("defaultParagraphSeparator", false, "p")` (non-fatal —
+some browsers may reject the deprecated command, in which case the `<div>`
+allowlist fallback below still holds). As a safety net for pasted/legacy
+markup and browsers that ignore the command, `buildPostProfile` now also
+allowlists bare `<div>` (`NOTE_PROFILE` already allowed it). `.post-body div`
+in `app/globals.css` gets the same `margin-block` as `.post-body p`.
+**Alternatives considered**: Sanitiser-side only (convert `<div>` to `<p>` at
+save time) — rejected because it still lets malformed/merged text reach the
+editor's live DOM before the next save, and converting block-level semantics
+server-side is lossier than just allowlisting the tag browsers actually emit.
+Leaving `<div>` unlisted and accepting the text-merge — rejected outright,
+it is a data-loss bug, not a style preference.
+**Consequences**: Both Notes and blog posts now store `<p>` for new content
+typed after this change (existing stored `<div>`-only content, if any,
+continues to render correctly via the allowlist + CSS rule, it just never
+gets rewritten to `<p>` on its own). Idempotence of `sanitizePostHtml` is
+preserved — `<div>` round-trips byte-for-byte, same as `<p>`.
+**Follow-up tasks**: None — this is believed complete. Revisit only if a
+browser is found where `defaultParagraphSeparator` silently produces a third
+wrapper tag (e.g., `<br>`-only line breaks), which would need its own
+allowlist entry.

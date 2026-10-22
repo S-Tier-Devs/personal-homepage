@@ -1,6 +1,6 @@
 {
   "name": "personal-homepage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,9 +12,11 @@
     "db:migrate": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs migrate"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1155.0",
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.101.0",
     "drizzle-orm": "^0.45.2",
+    "image-size": "^2.0.4",
     "next": "16.2.1",
     "postgres": "^3.4.9",
     "react": "19.2.4",

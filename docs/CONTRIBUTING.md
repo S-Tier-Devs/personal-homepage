@@ -85,3 +85,4 @@ Use this table to answer that question.
 | Deferred work understood but unscheduled | docs/ai/backlog.md + a docs/FEATURES.md row |
 | An architectural choice worth not relitigating | docs/ai/decision-records.md |
 | Release shipped | docs/ROADMAP.md history |
+| `app/api/blog/**` routes, the HTML subset, or token semantics | `docs/BLOG_API.md` — same PR, kept in lockstep |

@@ -13,7 +13,7 @@
 
 ## What it is
 
-**Public site** (`/`) — a single page: About, Projects, and a Contact section that is a `mailto:` link, not a form. Dark theme by default, light theme available, preference persisted. No blog.
+**Public site** (`/`) — a single page: About, Projects, and a Contact section that is a `mailto:` link, not a form. Dark theme by default, light theme available, preference persisted. A public blog lives alongside it at `/blog` (see `docs/BLOG_API.md` for the agent-facing API).
 
 **Private dashboard** (`/dashboard`) — a personal workspace for one admin, not a CMS:
 

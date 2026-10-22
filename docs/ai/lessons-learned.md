@@ -163,3 +163,19 @@ session.
 **Root cause**: App Router prefetch of a dynamic route only reaches the nearest Suspense boundary. No `loading.tsx` = no useful prefetch = blocking navigation with a frozen previous page.
 **Reusable rule**: A dynamic page (per-request server fetch) needs a `loading.tsx` in its segment; it gives an instant, prefetched skeleton and covers the *page* fetch (not the cookie-reading layout). A slow *external* fetch (Tasks → GSD) should additionally stream behind its own `<Suspense>` so navigation itself stays instant. Shape skeletons like the real card + fill-height so the swap is a fill, not a jump.
 **Action to encode**: Encoded in `AGENTS.md` (Pages convention) and `frontend.instructions.md` (State and Data Fetching). Tasks streaming follow-up filed in `docs/ai/backlog.md`.
+
+## 2026-10-22 — URL Validation Must Round-Trip the EMITTED Value, Not the Parsed Input
+**Phase/Context**: F-013 blog — adversarial review of `sanitizePostHtml`'s href rule (Task 6)
+**What worked**: An adversarial reviewer instructed to *construct* bypasses, not just read the code — it found `/..//evil.com` where every allowlist/scheme test passed
+**What failed**: `sanitizeHref` resolved the candidate against a fixed origin and checked `resolved.origin === base` — on the *input*. It then emitted `resolved.pathname + search + hash`, and URL normalization collapses `/..//evil.com`, `/.//evil.com`, `/%2e%2e//evil.com` to the protocol-relative `//evil.com`, which browsers resolve off-site. The identical gap existed in production `normalizeNextPath` (`lib/auth/redirects.ts`) — an unauthenticated open redirect via `/auth/logout?next=/..//evil.com` — written *after* the original open-redirect lesson and reviewed against it.
+**Root cause**: Resolve-then-serialize: validation ran on the parsed object, but the serialized form is what ships, and normalization changes meaning between the two.
+**Reusable rule**: After building the value you will emit, validate THAT value — `new URL(emitted, base).origin === base` — never only the pre-serialization parse. Any resolver-based guard needs the round-trip check, and a fix to a URL-validation gap should be grepped across the repo for siblings (`new URL(`, `pathname +`) the same day.
+**Action to encode**: Fixed in both `sanitizeHref` and `normalizeNextPath` with regression tests for all normalization variants; this entry is the record.
+
+## 2026-10-22 — The Sanitiser Allowlist Must Match What the Editor Actually Emits
+**Phase/Context**: F-013 blog — final whole-branch review caught owner-typed paragraphs merging into one run-together line
+**What worked**: A whole-branch reviewer probing cross-task *seams* that task-scoped reviews structurally cannot see — the editor (Task 10/11) and sanitiser (Task 6) were each individually correct against their briefs
+**What failed**: Chrome/Safari `contenteditable` emits `<div>` per line unless `defaultParagraphSeparator` is set; the post sanitiser's tag allowlist (taken from the spec) omitted `div`, and a dropped tag keeps only its text — so `line1<div>line2</div>` stored as `line1line2`, merging words. Agents sending `<p>` were unaffected, which is exactly why no API-level test caught it.
+**Root cause**: The spec's HTML subset was designed around what *should* be stored, not what the mandated authoring surface *emits*; no single task owned the seam.
+**Reusable rule**: When a `contenteditable` feeds a sanitiser, test the pair with the editor's real output (type a two-line body, sanitise it, assert structure survives). Set `document.execCommand("defaultParagraphSeparator", false, "p")` on editor mount AND allowlist the browser's fallback separator (`div`) as a safety net.
+**Action to encode**: Both halves implemented with a regression test on the exact probe input; spec erratum noted in the PR. Future editor-adjacent specs: derive the allowlist from captured editor output, not from taste.

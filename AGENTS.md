@@ -113,6 +113,10 @@ ai-standards/templates/AGENTS.md first, then sync outward. -->
   defence behind it.
 - Auth moves off Supabase in a later migration phase. A tier change is a
   decision-record event.
+- Blog agent access: scoped, SHA-256-hashed, revocable `pbk_` bearer tokens
+  (`api_tokens`), guard `requireBlogAuth` — see the invariant below and
+  `docs/BLOG_API.md`. Deliberate omissions, not gaps: no rate limiting, no
+  token expiry (spec 2026-10-22-blog-design.md §Authorization).
 
 ## Invariants
 
@@ -133,6 +137,12 @@ ai-standards/templates/AGENTS.md first, then sync outward. -->
   `useWorkspace()` filtering silently builds the wrong thing.
 - `design/patrick-beasley.dc.html` is the behavioural spec for the public page. Cite
   its line numbers; do not paraphrase from memory.
+- `requireBlogAuth` is the ONLY second auth guard, and only `app/api/blog/**`
+  may import it (CI-enforced by `lib/auth/blog-guard-scope.test.ts`). It never
+  falls back from a present Authorization header to the cookie session. Token
+  routes (`/api/api-tokens/**`) stay on `requireAdminAuth`.
+- The blog is **not** workspace-scoped (joins Documents and Settings in the
+  existing scoping invariant).
 
 ## Binding conventions
 
