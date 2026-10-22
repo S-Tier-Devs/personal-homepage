@@ -41,6 +41,8 @@ Phase 1 has shipped:
 - `lib/auth/` — `requireAdminAuth`, the single authorization choke point.
 - `lib/dashboard/` — shared API helpers including `postgresErrorCode` and
   `logQueryError`.
+- `lib/blog/` — blog domain: validation, events, cached public reads.
+- `lib/storage/` — S3-compatible Spaces client; bucket is a parameter for Phase 2 reuse.
 - `design/` — the behavioural spec for the public page.
 
 The conventions that govern wire format, handlers, pages, and loading boundaries are
@@ -55,6 +57,9 @@ not duplicate the schema here.
 Workspace scoping is not uniform, and this is the single most common mistake in the
 repo: **Links and Notes filter by the active workspace; Documents and Settings do
 not.**
+
+Blog tables (`blog_posts`, `blog_post_events`, `api_tokens`) are in `lib/db/schema.ts`
+alongside the rest; the blog is NOT workspace-scoped, joining Documents and Settings.
 
 ## Binding conventions
 
@@ -86,6 +91,12 @@ cost. A page whose data is a slow *external* call (Tasks → Project-GSD) should
 additionally stream that call behind its own `<Suspense>`, so the navigation itself
 stays instant and only the list area shows the fallback.
 
+Blog deviations, both deliberate: routes live under `/api/blog/**` (one prefix = one
+auth surface for the token guard), and public blog pages are `force-dynamic` +
+`unstable_cache(tags: ['blog'], revalidate: 300)` + `revalidateTag` instead of
+build-time static — `DATABASE_URL` is RUN_TIME-only, so a build-time DB query would
+hang the deploy (this section's Env vars).
+
 ## Deployment
 
 Runs on **DigitalOcean App Platform** — app `personal-homepage`, region `nyc`.
@@ -97,6 +108,7 @@ on merge (`deploy_on_push: true`).
 | App | App Platform | spec at `.do/app.yaml`; never edit in the web console |
 | Database | Managed Postgres | database `homepage` on shared `apps-pg` cluster; **public** hostname, `sslmode=require` |
 | Auth + storage | Supabase | session verification and Documents bytes, pending later migration phases |
+| Media | DO Spaces | bucket `pb-public-media` (nyc3, CDN, public-read); named for public media generally — hosted pages/videos later |
 | Secrets | App spec `type: SECRET` | blank in the committed spec, set out of band |
 
 ### Env vars in the spec
@@ -112,6 +124,19 @@ empty in the committed spec, and set out of band. `ADMIN_EMAIL` is a plain spec 
 it is the contact address this site publishes and is only compared against an
 already-authenticated session, so it is not sensitive and belongs in the spec so the
 app is reproducible from it.
+
+Blog media (F-013) adds five vars via the **live** spec procedure below, never by
+applying `.do/app.yaml` directly: `SPACES_KEY` / `SPACES_SECRET` (`RUN_TIME`,
+`type: SECRET`, blank in the committed spec), `SPACES_REGION`,
+`SPACES_MEDIA_BUCKET` (`RUN_TIME`), and `SPACES_MEDIA_CDN_URL` — this last one is
+**`RUN_AND_BUILD_TIME`**, not just `RUN_TIME` like the others, because the CSP
+`img-src` directive reads it at build time.
+
+**Local dev note:** `.env.local` must carry the real DigitalOcean `DATABASE_URL`
+(public hostname) for `npm run db:migrate` to run at all. The F-013 migration
+`drizzle/0002_*` is committed but **not yet applied anywhere** — not locally, not in
+production. Applying it is on the owner's infra checklist alongside the Spaces
+bucket/key setup.
 
 ### Never apply the committed spec directly
 

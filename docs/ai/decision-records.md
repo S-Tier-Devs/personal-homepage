@@ -154,3 +154,17 @@ This file tracks significant decisions made about AI workflows, tooling, and con
 **Consequences**: No Supabase SDK and no anon key ship to the browser — `lib/supabase/browser.ts` was their only client-side consumer. The `router.push()` + `router.refresh()` race is gone, since a server-set cookie precedes a server redirect. The email must be retyped after a failed sign-in without JS, accepted deliberately. `NEXT_PUBLIC_SITE_URL` is now load-bearing: `emailRedirectTo` derives from it rather than `window.location.origin`, because trusting a request `Host` header in an emailed link is a poisoning vector — it must be set per environment or magic links point at the fallback origin. Auth is now one replaceable server module, which also makes a future move off Supabase materially cheaper.  
 **Verified**: Sign-in succeeded on the Forcepoint-filtered network that motivated the change. Also verified in production: wrong password redirects to `?error=1`, no credentials appear in any URL, and a browser with no prior session can sign in. **Not verified**: the formal acceptance criterion of every flow with JavaScript explicitly disabled, and magic link end to end.  
 **Follow-up tasks**: Set `httpOnly: true` on session cookies — nothing client-side reads them any more, so this is a free reduction in XSS blast radius. Clear the sticky `?error=1` / `?sent=1` params, which persist across a refresh where the old state-based form cleared them. Enforce that `lib/env.ts` stays server-only (needs the `server-only` package); nothing currently prevents a future `"use client"` import from silently re-inlining the anon key with every gate still green.
+
+## 2026-10-22 — Second auth surface: blog API tokens
+
+**Decision:** add `requireBlogAuth` (session OR blog-scoped bearer token)
+beside `requireAdminAuth`, used only under `app/api/blog/**`.
+**Why:** F-013's primary authors are AI agents; they need credentials that are
+not the owner's session, are individually revocable, and are attributable in
+the activity log. Tier stays T0 personal — this adds machine credentials, not
+user accounts.
+**Shape:** `pbk_` + 32 random bytes base64url; SHA-256 at rest; soft revoke;
+`last_used_at` throttled to 1/min. No fallback from a present header to the
+session. No rate limiting (256-bit entropy) and no expiry (revocation + usage
+visibility) — stated decisions.
+**Blast radius:** enforced by `lib/auth/blog-guard-scope.test.ts`.
