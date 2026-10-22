@@ -163,6 +163,40 @@
     margin-block: 0.5rem;
   }
 
+  [contenteditable] h2 {
+    font-family: var(--font-heading, inherit);
+    font-size: 1.3rem;
+    font-weight: 650;
+    line-height: 1.35;
+    margin-block: 1rem 0.5rem;
+  }
+
+  [contenteditable] blockquote {
+    border-left: 3px solid var(--border);
+    padding-left: 0.875rem;
+    margin-block: 0.75rem;
+    color: var(--text-2);
+  }
+
+  [contenteditable] pre {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 0.75rem;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.85em;
+    white-space: pre-wrap;
+    overflow-x: auto;
+    margin-block: 0.75rem;
+  }
+
+  [contenteditable] img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 9px;
+    margin-block: 0.5rem;
+  }
+
   ::selection {
     background: var(--accent);
     color: #fff;
