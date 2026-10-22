@@ -1,12 +1,8 @@
 "use client";
 
-import ThemeToggle from "@/components/theme-toggle";
+import { usePathname } from "next/navigation";
 
-const NAV_LINKS = [
-  { href: "#about", label: "About" },
-  { href: "#projects", label: "Projects" },
-  { href: "#contact", label: "Contact" },
-];
+import ThemeToggle from "@/components/theme-toggle";
 
 /**
  * Narrow-viewport link sizing. Below 861px the anchors stop being bare inline
@@ -20,6 +16,16 @@ const NAV_LINK_CLASS = [
 ].join(" ");
 
 export default function SiteHeader() {
+  const pathname = usePathname();
+  const onHome = pathname === "/";
+  const section = (hash: string) => (onHome ? hash : `/${hash}`);
+  const navLinks = [
+    { href: section("#about"), label: "About" },
+    { href: section("#projects"), label: "Projects" },
+    { href: "/blog", label: "Blog" },
+    { href: section("#contact"), label: "Contact" },
+  ];
+
   return (
     <header
       className="pb-pad sticky top-0 z-40 flex flex-wrap items-center justify-between gap-5 border-b border-border px-[44px] py-4 max-[560px]:gap-x-3 max-[560px]:gap-y-0 max-[560px]:py-[10px]"
@@ -55,13 +61,13 @@ export default function SiteHeader() {
       <nav
         id="pb-homelinks"
         className={[
-          "flex items-center gap-[30px] text-sm font-medium text-text-2",
+          "flex items-center gap-[22px] text-sm font-medium text-text-2",
           "max-[860px]:gap-1 max-[860px]:text-[13px]",
           "max-[560px]:order-1 max-[560px]:w-full max-[560px]:justify-between",
           "max-[560px]:border-t max-[560px]:border-border",
         ].join(" ")}
       >
-        {NAV_LINKS.map((link) => (
+        {navLinks.map((link) => (
           <a key={link.href} href={link.href} className={NAV_LINK_CLASS}>
             {link.label}
           </a>
